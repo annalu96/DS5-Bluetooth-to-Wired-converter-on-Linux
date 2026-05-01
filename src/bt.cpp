@@ -9,8 +9,10 @@
 #include <bluetooth/hci_lib.h>
 #include <errno.h>
 #include <string.h>
+#include <fcntl.h>
 
 static int bt_socket = -1;
+static int global_dev_id = -1;
 
 int bt_init() {
     printf("[BT] Initializing RAW HCI socket...\n");
@@ -22,6 +24,7 @@ int bt_init() {
         return -1;
     }
     printf("[BT] Found HCI route on dev_id: %d\n", dev_id);
+    global_dev_id = dev_id;
 
     // 2. Open control socket to bring interface down programmatically
     int ctl_sock = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
@@ -53,7 +56,21 @@ int bt_init() {
         printf("[BT] Failed to bind HCI socket to HCI_CHANNEL_USER: %s\n", strerror(errno));
         close(bt_socket);
         bt_socket = -1;
+
+        // Try to restore interface
+        int ctl_sock_restore = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
+        if (ctl_sock_restore >= 0) {
+            ioctl(ctl_sock_restore, HCIDEVUP, dev_id);
+            close(ctl_sock_restore);
+        }
+
         return -1;
+    }
+
+    // Set socket to non-blocking
+    int flags = fcntl(bt_socket, F_GETFL, 0);
+    if (flags != -1) {
+        fcntl(bt_socket, F_SETFL, flags | O_NONBLOCK);
     }
 
     printf("[BT] Successfully opened exclusive RAW HCI socket (fd: %d) on device %d\n", bt_socket, dev_id);
@@ -66,11 +83,27 @@ void bt_deinit() {
         close(bt_socket);
         bt_socket = -1;
     }
+
+    if (global_dev_id != -1) {
+        int ctl_sock_restore = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
+        if (ctl_sock_restore >= 0) {
+            if (ioctl(ctl_sock_restore, HCIDEVUP, global_dev_id) == 0) {
+                printf("[BT] Successfully brought up hci%d\n", global_dev_id);
+            } else {
+                printf("[BT] Failed to bring up hci%d: %s\n", global_dev_id, strerror(errno));
+            }
+            close(ctl_sock_restore);
+        }
+    }
 }
 
-void bt_write(uint8_t *data, uint16_t len) {
+void bt_write(uint8_t packet_type, uint8_t *data, uint16_t len) {
     if (bt_socket != -1) {
-        ssize_t bytes_written = write(bt_socket, data, len);
+        uint8_t buf[len + 1];
+        buf[0] = packet_type;
+        memcpy(buf + 1, data, len);
+
+        ssize_t bytes_written = write(bt_socket, buf, len + 1);
         if (bytes_written < 0) {
             printf("[BT] Failed to write data: %s\n", strerror(errno));
         } else {
@@ -91,7 +124,8 @@ void bt_handle_data() {
         return;
     }
 
-    // Phase 3 implementation: just read and debug print
-    // printf("[BT] Received %zd bytes from HCI socket\n", len);
-    // In Phase 4/full implementation, we would parse L2CAP packets here
+    if (len > 0) {
+        uint8_t packet_type = buf[0];
+        // printf("[BT] Received %zd bytes from HCI socket. Packet type: 0x%02X\n", len, packet_type);
+    }
 }
