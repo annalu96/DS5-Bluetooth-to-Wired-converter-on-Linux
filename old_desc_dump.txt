@@ -1,0 +1,405 @@
+72:uint8_t const descriptor_configuration[] = {
+73-    // --- CONFIGURATION DESCRIPTOR ---
+74-    0x09, // bLength
+75-    0x02, // bDescriptorType (CONFIGURATION)
+76-    0xE3, 0x00, // wTotalLength: 227
+77-    0x04, // bNumInterfaces: 4
+78-    0x01, // bConfigurationValue: 1
+79-    0x00, // iConfiguration: 0
+80-    0xC0, // bmAttributes: SELF-POWERED, NO REMOTE-WAKEUP
+81-    0xFA, // bMaxPower: 500mA (250 * 2mA)
+82-
+83-    // --- INTERFACE DESCRIPTOR (0.0): Audio Control ---
+84-    0x09, // bLength
+85-    0x04, // bDescriptorType (INTERFACE)
+86-    0x00, // bInterfaceNumber: 0
+87-    0x00, // bAlternateSetting: 0
+88-    0x00, // bNumEndpoints: 0
+89-    0x01, // bInterfaceClass: Audio (0x01)
+90-    0x01, // bInterfaceSubClass: Audio Control (0x01)
+91-    0x00, // bInterfaceProtocol: 0x00
+92-    0x00, // iInterface: 0
+93-
+94-    // Class-specific AC Interface Header Descriptor
+95-    0x0A, // bLength: 10
+96-    0x24, // bDescriptorType: CS_INTERFACE (0x24)
+97-    0x01, // bDescriptorSubtype: Header (0x01)
+98-    0x00, 0x01, // bcdADC: 1.00
+99-    0x49, 0x00, // wTotalLength: 73 (0x0049)
+100-    0x02, // bInCollection: 2 streaming interfaces
+101-    0x01, // baInterfaceNr(1): Interface 1
+102-    0x02, // baInterfaceNr(2): Interface 2
+103-
+104-    // Input Terminal Descriptor (Terminal ID 1: USB Streaming → Output to Speaker)
+105-    0x0C, // bLength: 12
+106-    0x24, // bDescriptorType: CS_INTERFACE
+107-    0x02, // bDescriptorSubtype: Input Terminal
+108-    0x01, // bTerminalID: 1
+109-    0x01, 0x01, // wTerminalType: USB Streaming (0x0101)
+110-    0x06, // bAssocTerminal: 6 (paired with USB OUT terminal)
+111-    0x04, // bNrChannels: 4
+112-    0x33, 0x00, // wChannelConfig: L/R Front + L/R Surround (0x0033)
+113-    0x00, // iChannelNames: 0
+114-    0x00, // iTerminal: 0
+115-
+116-    // Feature Unit Descriptor (Unit ID 2 ← from Terminal 1)
+117-    0x0C, // bLength: 12
+118-    0x24, // bDescriptorType: CS_INTERFACE
+119-    0x06, // bDescriptorSubtype: Feature Unit
+120-    0x02, // bUnitID: 2
+121-    0x01, // bSourceID: 1
+122-    0x01, // bControlSize: 1 byte per control
+123-    0x03, // bmaControls[0]: Master – Mute, Volume
+124-    0x00, 0x00, 0x00, 0x00, 0x00, // bmaControls[1..4]: No per-channel controls
+125-
+126-    // Output Terminal Descriptor (Terminal ID 3: Speaker ← from Unit 2)
+127-    0x09, // bLength: 9
+128-    0x24, // bDescriptorType: CS_INTERFACE
+129-    0x03, // bDescriptorSubtype: Output Terminal
+130-    0x03, // bTerminalID: 3
+131-    0x01, 0x03, // wTerminalType: Speaker (0x0301)
+132-    0x04, // bAssocTerminal: 4 (paired with mic input)
+133-    0x02, // bSourceID: 2 (Feature Unit)
+134-    0x00, // iTerminal: 0
+135-
+136-    // Input Terminal Descriptor (Terminal ID 4: Headset Mic)
+137-    0x0C, // bLength: 12
+138-    0x24, // bDescriptorType: CS_INTERFACE
+139-    0x02, // bDescriptorSubtype: Input Terminal
+140-    0x04, // bTerminalID: 4
+141-    0x02, 0x04, // wTerminalType: Headset (0x0402)
+142-    0x03, // bAssocTerminal: 3 (paired with speaker)
+143-    0x02, // bNrChannels: 2
+144-    0x03, 0x00, // wChannelConfig: L/R Front (0x0003)
+145-    0x00, // iChannelNames: 0
+146-    0x00, // iTerminal: 0
+147-
+148-    // Feature Unit Descriptor (Unit ID 5 ← from Terminal 4)
+149-    0x09, // bLength: 9
+150-    0x24, // bDescriptorType: CS_INTERFACE
+151-    0x06, // bDescriptorSubtype: Feature Unit
+152-    0x05, // bUnitID: 5
+153-    0x04, // bSourceID: 4
+154-    0x01, // bControlSize: 1
+155-    0x03, // bmaControls[0]: Master – Mute, Volume
+156-    0x00, // bmaControls[1]: Ch1 – no controls
+157-    0x00, // iFeature: 0
+158-
+159-    // Output Terminal Descriptor (Terminal ID 6: USB Streaming ← from Unit 5)
+160-    0x09, // bLength: 9
+161-    0x24, // bDescriptorType: CS_INTERFACE
+162-    0x03, // bDescriptorSubtype: Output Terminal
+163-    0x06, // bTerminalID: 6
+164-    0x01, 0x01, // wTerminalType: USB Streaming (0x0101)
+165-    0x01, // bAssocTerminal: 1
+166-    0x05, // bSourceID: 5
+167-    0x00, // iTerminal: 0
+168-
+169-    // --- INTERFACE DESCRIPTOR (1.0): Audio Streaming (OUT - Alternate 0) ---
+170-    0x09, // bLength
+171-    0x04, // bDescriptorType (INTERFACE)
+172-    0x01, // bInterfaceNumber: 1
+173-    0x00, // bAlternateSetting: 0
+174-    0x00, // bNumEndpoints: 0
+175-    0x01, // bInterfaceClass: Audio
+176-    0x02, // bInterfaceSubClass: Audio Streaming
+177-    0x00, // bInterfaceProtocol
+178-    0x00, // iInterface
+179-
+180-    // --- INTERFACE DESCRIPTOR (1.1): Audio Streaming (OUT - Alternate 1) ---
+181-    0x09, // bLength
+182-    0x04, // bDescriptorType (INTERFACE)
+183-    0x01, // bInterfaceNumber: 1
+184-    0x01, // bAlternateSetting: 1
+185-    0x01, // bNumEndpoints: 1
+186-    0x01, // bInterfaceClass: Audio
+187-    0x02, // bInterfaceSubClass: Audio Streaming
+188-    0x00, // bInterfaceProtocol
+189-    0x00, // iInterface
+190-
+191-    // AS General Descriptor (for Interface 1.1)
+192-    0x07, // bLength: 7
+193-    0x24, // bDescriptorType: CS_INTERFACE
+194-    0x01, // bDescriptorSubtype: AS_GENERAL
+195-    0x01, // bTerminalLink: connected to Terminal ID 1
+196-    0x01, // bDelay: 1 frame
+197-    0x01, 0x00, // wFormatTag: PCM (0x0001)
+198-
+199-    // Format Type Descriptor (4-channel, 16-bit, 48kHz)
+200-    0x0B, // bLength: 11
+201-    0x24, // bDescriptorType: CS_INTERFACE
+202-    0x02, // bDescriptorSubtype: FORMAT_TYPE
+203-    0x01, // bFormatType: TYPE_I
+204-    0x04, // bNrChannels: 4
+205-    0x02, // bSubframeSize: 2 bytes/sample
+206-    0x10, // bBitResolution: 16 bits
+207-    0x01, // bSamFreqType: 1 discrete frequency
+208-    0x80, 0xBB, 0x00, // tSamFreq: 48000 Hz (0x00BB80)
+209-
+210-    // Endpoint Descriptor (Audio OUT: EP1)
+211-    0x09, // bLength
+212-    0x05, // bDescriptorType (ENDPOINT)
+213-    0x01, // bEndpointAddress: OUT EP1
+214-    0x09, // bmAttributes: Isochronous, Adaptive
+215-    0x88, 0x01, // wMaxPacketSize: 392 bytes
+216-    0x01, // bInterval: 1
+217-    0x00, // bRefresh
+218-    0x00, // bSynchAddress
+219-
+220-    // Class-specific Audio Streaming Endpoint Descriptor (EP1)
+221-    0x07, // bLength
+222-    0x25, // bDescriptorType: CS_ENDPOINT
+223-    0x01, // bDescriptorSubtype: GENERAL
+224-    0x00, // Attributes: No pitch/sampling freq control
+225-    0x00, // Lock Delay Units: Undefined
+226-    0x00, 0x00, // Lock Delay: 0
+227-
+228-    // --- INTERFACE DESCRIPTOR (2.0): Audio Streaming IN (Alternate 0) ---
+229-    0x09, // bLength
+230-    0x04, // bDescriptorType (INTERFACE)
+231-    0x02, // bInterfaceNumber: 2
+232-    0x00, // bAlternateSetting: 0
+233-    0x00, // bNumEndpoints: 0
+234-    0x01, // bInterfaceClass: Audio
+235-    0x02, // bInterfaceSubClass: Audio Streaming
+236-    0x00, // bInterfaceProtocol
+237-    0x00, // iInterface
+238-
+239-    // --- INTERFACE DESCRIPTOR (2.1): Audio Streaming IN (Alternate 1) ---
+240-    0x09, // bLength
+241-    0x04, // bDescriptorType (INTERFACE)
+242-    0x02, // bInterfaceNumber: 2
+243-    0x01, // bAlternateSetting: 1
+244-    0x01, // bNumEndpoints: 1
+245-    0x01, // bInterfaceClass: Audio
+246-    0x02, // bInterfaceSubClass: Audio Streaming
+247-    0x00, // bInterfaceProtocol
+248-    0x00, // iInterface
+249-
+250-    // AS General Descriptor (for Interface 2.1)
+251-    0x07, // bLength: 7
+252-    0x24, // bDescriptorType: CS_INTERFACE
+253-    0x01, // bDescriptorSubtype: AS_GENERAL
+254-    0x06, // bTerminalLink: connected to Terminal ID 6
+255-    0x01, // bDelay: 1 frame
+256-    0x01, 0x00, // wFormatTag: PCM (0x0001)
+257-
+258-    // Format Type Descriptor (2-channel, 16-bit, 48kHz)
+259-    0x0B, // bLength: 11
+260-    0x24, // bDescriptorType: CS_INTERFACE
+261-    0x02, // bDescriptorSubtype: FORMAT_TYPE
+262-    0x01, // bFormatType: TYPE_I
+263-    0x02, // bNrChannels: 2
+264-    0x02, // bSubframeSize: 2
+265-    0x10, // bBitResolution: 16
+266-    0x01, // bSamFreqType: 1
+267-    0x80, 0xBB, 0x00, // tSamFreq: 48000 Hz
+268-
+269-    // Endpoint Descriptor (Audio IN: EP2)
+270-    0x09, // bLength
+271-    0x05, // bDescriptorType (ENDPOINT)
+272-    0x82, // bEndpointAddress: IN EP2
+--
+331:uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
+332-    (void) index; // for multiple configurations
+333:    return descriptor_configuration;
+334-}
+335-
+336-//--------------------------------------------------------------------+
+337-// HID Report Descriptor
+338-//--------------------------------------------------------------------+
+339-
+340-#ifndef ENABLE_DSE
+341-uint8_t const desc_hid_report_ds[] = {
+342-    0x05, 0x01, // Usage Page (Generic Desktop Ctrls)
+343-    0x09, 0x05, // Usage (Game Pad)
+344-    0xA1, 0x01, // Collection (Application)
+345-    0x85, 0x01, //   Report ID (1)
+346-    0x09, 0x30, //   Usage (X)
+347-    0x09, 0x31, //   Usage (Y)
+348-    0x09, 0x32, //   Usage (Z)
+349-    0x09, 0x35, //   Usage (Rz)
+350-    0x09, 0x33, //   Usage (Rx)
+351-    0x09, 0x34, //   Usage (Ry)
+352-    0x15, 0x00, //   Logical Minimum (0)
+353-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+354-    0x75, 0x08, //   Report Size (8)
+355-    0x95, 0x06, //   Report Count (6)
+356-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+357-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+358-    0x09, 0x20, //   Usage (0x20)
+359-    0x95, 0x01, //   Report Count (1)
+360-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+361-    0x05, 0x01, //   Usage Page (Generic Desktop Ctrls)
+362-    0x09, 0x39, //   Usage (Hat switch)
+363-    0x15, 0x00, //   Logical Minimum (0)
+364-    0x25, 0x07, //   Logical Maximum (7)
+365-    0x35, 0x00, //   Physical Minimum (0)
+366-    0x46, 0x3B, 0x01, //   Physical Maximum (315)
+367-    0x65, 0x14, //   Unit (System: English Rotation, Length: Centimeter)
+368-    0x75, 0x04, //   Report Size (4)
+369-    0x95, 0x01, //   Report Count (1)
+370-    0x81, 0x42, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,Null State)
+371-    0x65, 0x00, //   Unit (None)
+372-    0x05, 0x09, //   Usage Page (Button)
+373-    0x19, 0x01, //   Usage Minimum (0x01)
+374-    0x29, 0x0F, //   Usage Maximum (0x0F)
+375-    0x15, 0x00, //   Logical Minimum (0)
+376-    0x25, 0x01, //   Logical Maximum (1)
+377-    0x75, 0x01, //   Report Size (1)
+378-    0x95, 0x0F, //   Report Count (15)
+379-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+380-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+381-    0x09, 0x21, //   Usage (0x21)
+382-    0x95, 0x0D, //   Report Count (13)
+383-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+384-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+385-    0x09, 0x22, //   Usage (0x22)
+386-    0x15, 0x00, //   Logical Minimum (0)
+387-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+388-    0x75, 0x08, //   Report Size (8)
+389-    0x95, 0x34, //   Report Count (52)
+390-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+391-    0x85, 0x02, //   Report ID (2)
+392-    0x09, 0x23, //   Usage (0x23)
+393-    0x95, 0x2F, //   Report Count (47)
+394-    0x91, 0x02, //   Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+395-    0x85, 0x05, //   Report ID (5)
+396-    0x09, 0x33, //   Usage (0x33)
+397-    0x95, 0x28, //   Report Count (40)
+398-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+399-    0x85, 0x08, //   Report ID (8)
+400-    0x09, 0x34, //   Usage (0x34)
+401-    0x95, 0x2F, //   Report Count (47)
+402-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+403-    0x85, 0x09, //   Report ID (9)
+404-    0x09, 0x24, //   Usage (0x24)
+405-    0x95, 0x13, //   Report Count (19)
+406-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+407-    0x85, 0x0A, //   Report ID (10)
+408-    0x09, 0x25, //   Usage (0x25)
+409-    0x95, 0x1A, //   Report Count (26)
+410-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+411-    0x85, 0x0B, //   Report ID (11)
+412-    0x09, 0x41, //   Usage (0x41)
+413-    0x95, 0x29, //   Report Count (41)
+414-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+415-    0x85, 0x0C, //   Report ID (12)
+416-    0x09, 0x42, //   Usage (0x42)
+417-    0x95, 0x29, //   Report Count (41)
+418-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+419-    0x85, 0x20, //   Report ID (32)
+420-    0x09, 0x26, //   Usage (0x26)
+421-    0x95, 0x3F, //   Report Count (63)
+422-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+423-    0x85, 0x21, //   Report ID (33)
+424-    0x09, 0x27, //   Usage (0x27)
+425-    0x95, 0x04, //   Report Count (4)
+426-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+427-    0x85, 0x22, //   Report ID (34)
+428-    0x09, 0x40, //   Usage (0x40)
+429-    0x95, 0x3F, //   Report Count (63)
+430-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+431-    0x85, 0x80, //   Report ID (-128)
+432-    0x09, 0x28, //   Usage (0x28)
+433-    0x95, 0x3F, //   Report Count (63)
+434-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+435-    0x85, 0x81, //   Report ID (-127)
+436-    0x09, 0x29, //   Usage (0x29)
+437-    0x95, 0x3F, //   Report Count (63)
+438-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+439-    0x85, 0x82, //   Report ID (-126)
+440-    0x09, 0x2A, //   Usage (0x2A)
+441-    0x95, 0x09, //   Report Count (9)
+442-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+443-    0x85, 0x83, //   Report ID (-125)
+444-    0x09, 0x2B, //   Usage (0x2B)
+445-    0x95, 0x3F, //   Report Count (63)
+446-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+447-    0x85, 0x84, //   Report ID (-124)
+448-    0x09, 0x2C, //   Usage (0x2C)
+449-    0x95, 0x3F, //   Report Count (63)
+450-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+451-    0x85, 0x85, //   Report ID (-123)
+452-    0x09, 0x2D, //   Usage (0x2D)
+453-    0x95, 0x02, //   Report Count (2)
+454-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+455-    0x85, 0xA0, //   Report ID (-96)
+456-    0x09, 0x2E, //   Usage (0x2E)
+457-    0x95, 0x01, //   Report Count (1)
+458-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+459-    0x85, 0xE0, //   Report ID (-32)
+460-    0x09, 0x2F, //   Usage (0x2F)
+461-    0x95, 0x3F, //   Report Count (63)
+462-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+463-    0x85, 0xF0, //   Report ID (-16)
+464-    0x09, 0x30, //   Usage (0x30)
+465-    0x95, 0x3F, //   Report Count (63)
+466-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+467-    0x85, 0xF1, //   Report ID (-15)
+468-    0x09, 0x31, //   Usage (0x31)
+469-    0x95, 0x3F, //   Report Count (63)
+470-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+471-    0x85, 0xF2, //   Report ID (-14)
+472-    0x09, 0x32, //   Usage (0x32)
+473-    0x95, 0x0F, //   Report Count (15)
+474-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+475-    0x85, 0xF4, //   Report ID (-12)
+476-    0x09, 0x35, //   Usage (0x35)
+477-    0x95, 0x3F, //   Report Count (63)
+478-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+479-    0x85, 0xF5, //   Report ID (-11)
+480-    0x09, 0x36, //   Usage (0x36)
+481-    0x95, 0x03, //   Report Count (3)
+482-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+483-    0xC0, // End Collection
+484-    // 289 bytes
+485-};
+486-#endif
+487-
+488-#ifdef ENABLE_DSE
+489-uint8_t const desc_hid_report_dse[] = {
+490-    0x05, 0x01, // Usage Page (Generic Desktop Ctrls)
+491-    0x09, 0x05, // Usage (Game Pad)
+492-    0xA1, 0x01, // Collection (Application)
+493-    0x85, 0x01, //   Report ID (1)
+494-    0x09, 0x30, //   Usage (X)
+495-    0x09, 0x31, //   Usage (Y)
+496-    0x09, 0x32, //   Usage (Z)
+497-    0x09, 0x35, //   Usage (Rz)
+498-    0x09, 0x33, //   Usage (Rx)
+499-    0x09, 0x34, //   Usage (Ry)
+500-    0x15, 0x00, //   Logical Minimum (0)
+501-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+502-    0x75, 0x08, //   Report Size (8)
+503-    0x95, 0x06, //   Report Count (6)
+504-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+505-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+506-    0x09, 0x20, //   Usage (0x20)
+507-    0x95, 0x01, //   Report Count (1)
+508-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+509-    0x05, 0x01, //   Usage Page (Generic Desktop Ctrls)
+510-    0x09, 0x39, //   Usage (Hat switch)
+511-    0x15, 0x00, //   Logical Minimum (0)
+512-    0x25, 0x07, //   Logical Maximum (7)
+513-    0x35, 0x00, //   Physical Minimum (0)
+514-    0x46, 0x3B, 0x01, //   Physical Maximum (315)
+515-    0x65, 0x14, //   Unit (System: English Rotation, Length: Centimeter)
+516-    0x75, 0x04, //   Report Size (4)
+517-    0x95, 0x01, //   Report Count (1)
+518-    0x81, 0x42, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,Null State)
+519-    0x65, 0x00, //   Unit (None)
+520-    0x05, 0x09, //   Usage Page (Button)
+521-    0x19, 0x01, //   Usage Minimum (0x01)
+522-    0x29, 0x0F, //   Usage Maximum (0x0F)
+523-    0x15, 0x00, //   Logical Minimum (0)
+524-    0x25, 0x01, //   Logical Maximum (1)
+525-    0x75, 0x01, //   Report Size (1)
+526-    0x95, 0x0F, //   Report Count (15)
+527-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+528-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+529-    0x09, 0x21, //   Usage (0x21)
+530-    0x95, 0x0D, //   Report Count (13)
+531-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+532-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
+533-    0x09, 0x22, //   Usage (0x22)

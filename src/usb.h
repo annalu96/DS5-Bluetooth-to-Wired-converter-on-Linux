@@ -7,9 +7,10 @@ extern uint8_t mute[2]; // 0: SPEAKER(0x02) 1: MIC(0x05)
 extern float volume[2]; // 0: SPEAKER(0x02) 1: MIC(0x05)
 
 extern int ep0_fd;
-extern int ep1_fd;
-extern int ep2_fd;
-extern int ep3_fd;
+extern int ep_audio_out_fd;
+extern int ep_audio_in_fd;
+extern int ep_hid_in_fd;
+extern int ep_hid_out_fd;
 
 int usb_init();
 void usb_deinit();
