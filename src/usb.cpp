@@ -160,8 +160,8 @@ struct {
 
 int usb_init() {
     printf("[USB] Running setup_gadget.sh...\n");
-    if (system("./setup_gadget.sh") != 0) {
-        printf("[USB] Failed to run setup_gadget.sh. Make sure you are root.\n");
+    if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
+        printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
         // return -1;
     }
 
@@ -235,7 +235,8 @@ void usb_handle_ep0() {
     struct usb_ctrlrequest setup;
     int ret = read(ep0_fd, &setup, sizeof(setup));
     if (ret < 0) {
-        // perror("[USB] ep0 read error");
+        // Not all kernels pass all setup packets.
+        // A read error might just mean there's no valid setup packet pending or an interruption.
         return;
     }
 
@@ -309,6 +310,10 @@ void usb_handle_ep0() {
                              bt_write(CONTROL, final_buf, ret + 1);
                          }
                      }
+                 } else if (setup.wLength > 0) {
+                     // Empty read to discard unhandled data if we didn't read it
+                     uint8_t discard[256];
+                     read(ep0_fd, discard, setup.wLength > sizeof(discard) ? sizeof(discard) : setup.wLength);
                  }
                  read(ep0_fd, NULL, 0); // Acknowledge status stage
             } else {

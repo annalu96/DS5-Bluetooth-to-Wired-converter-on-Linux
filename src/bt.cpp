@@ -110,6 +110,7 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 }
 
 bool bt_is_fd_mine(int fd) {
+    if (fd < 0) return false;
     return fd == srv_ctrl_fd || fd == srv_intr_fd || fd == ctrl_fd || fd == intr_fd;
 }
 
