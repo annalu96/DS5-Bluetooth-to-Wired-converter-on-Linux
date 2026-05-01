@@ -26,7 +26,7 @@ int main() {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    bt_init();
+    int bt_fd = bt_init();
     audio_init();
     // usb_init(); // To be implemented
 
@@ -36,10 +36,21 @@ int main() {
         return 1;
     }
 
-    // TODO (Phase 3 & 4):
-    // 1. Create Bluetooth RAW HCI socket
-    // 2. Open USB FunctionFS endpoints (/dev/ffs/ep1, /dev/ffs/ep2, etc.)
-    // 3. Add those file descriptors to epoll_fd using epoll_ctl
+    struct epoll_event ev;
+
+    // Add BT socket to epoll
+    if (bt_fd != -1) {
+        ev.events = EPOLLIN;
+        ev.data.fd = bt_fd;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, bt_fd, &ev) == -1) {
+            perror("epoll_ctl: bt_fd");
+            return 1;
+        }
+    }
+
+    // TODO (Phase 4):
+    // 1. Open USB FunctionFS endpoints (/dev/ffs/ep1, /dev/ffs/ep2, etc.)
+    // 2. Add those file descriptors to epoll_fd using epoll_ctl
 
     struct epoll_event events[MAX_EVENTS];
 
@@ -56,10 +67,13 @@ int main() {
         }
 
         for (int n = 0; n < nfds; ++n) {
-            // TODO (Phase 3 & 4):
+            if (events[n].data.fd == bt_fd) {
+                bt_handle_data();
+            }
+
+            // TODO (Phase 4):
             // Check which file descriptor is ready and handle reading/writing
             // Example:
-            // if (events[n].data.fd == bt_socket) { handle_bt_data(); }
             // if (events[n].data.fd == usb_audio_ep) {
             //     int16_t raw[192];
             //     uint32_t bytes = read(usb_audio_ep, raw, sizeof(raw));
