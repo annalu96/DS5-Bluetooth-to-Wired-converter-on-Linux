@@ -1,0 +1,40 @@
+--- src/main.cpp
++++ src/main.cpp
+@@ -8,11 +8,15 @@
+ #include <cerrno>
+ #include <cstring>
++#include <map>
++#include <vector>
+
+ #include "bt.h"
+ #include "usb.h"
+ #include "audio.h"
+ #include "utils.h"
+
+ #define MAX_EVENTS 10
+
+ std::atomic<bool> daemon_running{true};
+ int reportSeqCounter = 0;
+
+ void signal_handler(int signum) {
+     printf("\nCaught signal %d. Initiating graceful shutdown...\n", signum);
+     daemon_running = false;
+ }
+
++extern std::map<uint8_t, std::vector<uint8_t>> feature_data;
++
+ // Callback when Bluetooth receives data
+ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
+-    // Ignore control channel for now in main mapping
+-    if (channel != INTERRUPT) return;
++    if (channel == CONTROL) {
++        if (len > 1 && data[0] == 0xA3) {
++            uint8_t report_id = data[1];
++            feature_data[report_id].assign(data + 1, data + len);
++        }
++        return;
++    }
++
++    if (channel != INTERRUPT) return;
+
+     if (len > 1 && data[0] == 0xA1) { // HID DATA header

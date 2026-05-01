@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cerrno>
 #include <cstring>
+#include <map>
+#include <vector>
 
 #include "bt.h"
 #include "usb.h"
@@ -14,6 +16,7 @@
 
 #define MAX_EVENTS 10
 
+std::map<uint8_t, std::vector<uint8_t>> feature_data;
 std::atomic<bool> daemon_running{true};
 int reportSeqCounter = 0;
 
@@ -24,6 +27,14 @@ void signal_handler(int signum) {
 
 // Callback when Bluetooth receives data
 void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
+    if (channel == CONTROL) {
+        if (len > 1 && data[0] == 0xA3) {
+            uint8_t report_id = data[1];
+            feature_data[report_id].assign(data + 1, data + len);
+        }
+        return;
+    }
+
     // Ignore control channel for now in main mapping
     if (channel != INTERRUPT) return;
 
@@ -146,7 +157,13 @@ int main() {
                             reportSeqCounter = 0;
                         }
                         outputData[3] = 0x10; // Flags? Usually 0x10 or 0x00
-                        memcpy(outputData + 4, buf + 1, ret - 1); // buf[0] is 0x02
+                        // The `ret` from USB EP2 should be 64 bytes (1 byte ID `0x02` + 63 bytes payload).
+                        // We copy `ret - 1` (63) bytes to `outputData + 4`.
+                        // Then we calculate CRC for the remaining 4 bytes, so total size 1+1+1+1+63+4 = 71 bytes?
+                        // Wait, old_main.cpp used `sizeof(outputData)` which is 78 bytes.
+                        // The 78 bytes total length is: 0xA2, 0x31, seq, 0x10, then 70 bytes of payload (which includes padding) and 4 CRC.
+                        // Let's copy the payload and calculate the CRC on the whole 77 bytes (index 1 to 77).
+                        memcpy(outputData + 4, buf + 1, ret - 1);
 
                         fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
 
