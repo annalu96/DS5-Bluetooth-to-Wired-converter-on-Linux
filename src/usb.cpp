@@ -14,6 +14,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
+#include "bt.h"
+#include "utils.h"
 
 uint8_t mute[2] = {0}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
@@ -260,11 +262,27 @@ void usb_handle_ep0() {
             }
         } else if ((setup.bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
             if (setup.bRequest == HID_REQ_GET_REPORT) {
-                 // GET_REPORT logic from old code
-                 uint8_t buf[256]; // Assuming max feature report is small
-                 // Dummy write for now, should call utils get_feature_data
-                 // write(ep0_fd, buf, size);
-                 read(ep0_fd, NULL, 0); // Stall
+                 uint8_t report_type = setup.wValue >> 8;
+                 uint8_t report_id = setup.wValue & 0xFF;
+
+                 if (report_type == 3) { // Feature Report
+                     uint8_t buf[64];
+                     memset(buf, 0, sizeof(buf));
+                     buf[0] = report_id;
+
+                     if (setup.wLength <= sizeof(buf)) {
+                         write(ep0_fd, buf, setup.wLength);
+
+                         uint8_t get_feature[2] = {0x43, report_id};
+                         bt_write(CONTROL, get_feature, sizeof(get_feature));
+                     } else {
+                         write(ep0_fd, buf, sizeof(buf));
+                     }
+                 } else {
+                     uint8_t buf[64];
+                     memset(buf, 0, sizeof(buf));
+                     write(ep0_fd, buf, setup.wLength);
+                 }
             } else {
                 read(ep0_fd, NULL, 0);
             }
@@ -279,8 +297,17 @@ void usb_handle_ep0() {
                  if (setup.wLength > 0 && setup.wLength <= sizeof(buf)) {
                      ret = read(ep0_fd, buf, setup.wLength);
                      if (ret > 0) {
-                         // printf("[USB] Received SET_REPORT, %d bytes\n", ret);
-                         // Handle SET_REPORT (like old tud_hid_set_report_cb)
+                         uint8_t report_type = setup.wValue >> 8;
+                         uint8_t report_id = setup.wValue & 0xFF;
+
+                         if (report_type == 3) { // Feature Report
+                             uint8_t final_buf[256];
+                             final_buf[0] = 0x53; // 0x53 is SET_REPORT (Feature)
+                             final_buf[1] = report_id;
+                             memcpy(final_buf + 2, buf + 1, ret - 1);
+                             fill_feature_report_checksum(final_buf + 1, ret);
+                             bt_write(CONTROL, final_buf, ret + 1);
+                         }
                      }
                  }
                  read(ep0_fd, NULL, 0); // Acknowledge status stage
