@@ -3,12 +3,18 @@
 
 #include <cstdint>
 
-typedef void (*bt_data_callback_t)(uint8_t *data, uint16_t len);
+enum CHANNEL_TYPE {
+    INTERRUPT,
+    CONTROL
+};
 
-int bt_init();
+typedef void (*bt_data_callback_t)(CHANNEL_TYPE channel, uint8_t *data, uint16_t len);
+
+int bt_init(int epoll_fd);
 void bt_deinit();
-void bt_write(uint8_t packet_type, uint8_t *data, uint16_t len);
-void bt_handle_data();
+void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len);
 void bt_register_data_callback(bt_data_callback_t callback);
+void bt_process_epoll_event(int fd);
+bool bt_is_fd_mine(int fd);
 
 #endif //DS5_BRIDGE_BT_H

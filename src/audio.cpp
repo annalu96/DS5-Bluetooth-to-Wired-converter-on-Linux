@@ -145,7 +145,7 @@ void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read) {
         }
 
         fill_output_report_checksum(pkt, sizeof(pkt));
-        bt_write(0x02, pkt, sizeof(pkt)); // 0x02 is HCI_ACLDATA_PKT
+        bt_write(INTERRUPT, pkt, sizeof(pkt)); // 0x02 is HCI_ACLDATA_PKT
         haptic_buf_pos = 0;
     }
 }
