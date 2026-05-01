@@ -14,5 +14,6 @@ extern int ep3_fd;
 int usb_init();
 void usb_deinit();
 void usb_handle_ep0();
+void usb_process_pending_feature(uint8_t report_id);
 
 #endif //DS5_BRIDGE_USB_H
