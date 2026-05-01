@@ -20,6 +20,7 @@ add_executable(dualsense_bridge
     src/audio.cpp
     src/usb.cpp
     src/bt.cpp
+    src/usb_descriptors.cpp
     lib/WDL/WDL/resample.cpp
 )
 

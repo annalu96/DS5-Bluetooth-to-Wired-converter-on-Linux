@@ -13,6 +13,11 @@
 
 static int bt_socket = -1;
 static int global_dev_id = -1;
+static bt_data_callback_t data_callback = nullptr;
+
+void bt_register_data_callback(bt_data_callback_t callback) {
+    data_callback = callback;
+}
 
 int bt_init() {
     printf("[BT] Initializing RAW HCI socket...\n");
@@ -127,5 +132,8 @@ void bt_handle_data() {
     if (len > 0) {
         uint8_t packet_type = buf[0];
         // printf("[BT] Received %zd bytes from HCI socket. Packet type: 0x%02X\n", len, packet_type);
+        if (data_callback) {
+            data_callback(buf, len);
+        }
     }
 }
