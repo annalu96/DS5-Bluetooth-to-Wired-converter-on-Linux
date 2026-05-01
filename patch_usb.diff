@@ -1,20 +1,15 @@
 --- src/usb.cpp
 +++ src/usb.cpp
-@@ -16,6 +16,8 @@
- #include <cstdlib>
- #include <cstring>
- #include <cerrno>
-+#include <map>
-+#include <vector>
- #include "bt.h"
- #include "utils.h"
+@@ -25,9 +25,10 @@
+ float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 
-@@ -28,6 +30,8 @@
- int ep2_fd = -1;
- int ep3_fd = -1;
+ int ep0_fd = -1;
+-int ep1_fd = -1;
+-int ep2_fd = -1;
+-int ep3_fd = -1;
++int ep_audio_out_fd = -1;
++int ep_audio_in_fd = -1;
++int ep_hid_in_fd = -1;
++int ep_hid_out_fd = -1;
 
-+extern std::map<uint8_t, std::vector<uint8_t>> feature_data;
-+
- // HID descriptor structure for FunctionFS
- struct usb_hid_descriptor {
-     __u8  bLength;
+ extern std::map<uint8_t, std::vector<uint8_t>> feature_data;

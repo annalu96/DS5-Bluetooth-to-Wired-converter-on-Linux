@@ -40,7 +40,7 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     if (channel != INTERRUPT) return;
 
     if (len > 1 && data[0] == 0xA1) { // HID DATA header
-        if (data[1] == 0x31 && ep1_fd >= 0) { // 0x31 is DualSense State report
+        if (data[1] == 0x31 && ep_hid_in_fd >= 0) { // 0x31 is DualSense State report
             // We need to map 0x31 (BT) -> 0x01 (USB)
             // BT 0x31: [A1] [31] [seq] [buttons/sticks...]
             // USB 0x01: [01] [buttons/sticks...] (64 bytes total, we write 63 payload)
@@ -61,7 +61,7 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
                 final_usb_report[0] = 0x01;
                 memcpy(final_usb_report + 1, data + 3, 63);
 
-                write(ep1_fd, final_usb_report, 64);
+                write(ep_hid_in_fd, final_usb_report, 64);
             }
         }
     }
@@ -106,11 +106,21 @@ int main() {
     }
 
     // Add USB EP2 (OUT) to epoll
-    if (ep2_fd != -1) {
+    if (ep_hid_out_fd != -1) {
         ev.events = EPOLLIN;
-        ev.data.fd = ep2_fd;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep2_fd, &ev) == -1) {
-            perror("epoll_ctl: ep2_fd");
+        ev.data.fd = ep_hid_out_fd;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_hid_out_fd, &ev) == -1) {
+            perror("epoll_ctl: ep_hid_out_fd");
+            return 1;
+        }
+    }
+
+    // Add USB EP1 (Audio OUT) to epoll
+    if (ep_audio_out_fd != -1) {
+        ev.events = EPOLLIN;
+        ev.data.fd = ep_audio_out_fd;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_audio_out_fd, &ev) == -1) {
+            perror("epoll_ctl: ep_audio_out_fd");
             return 1;
         }
     }
@@ -141,10 +151,17 @@ int main() {
             else if (fd == ep0_fd && (events[n].events & EPOLLIN)) {
                 usb_handle_ep0();
             }
-            else if (fd == ep2_fd && (events[n].events & EPOLLIN)) {
+            else if (fd == ep_audio_out_fd && (events[n].events & EPOLLIN)) {
+                int16_t buf[196]; // 392 bytes max packet size
+                int ret = read(ep_audio_out_fd, buf, sizeof(buf));
+                if (ret > 0) {
+                    audio_receive_pcm(buf, ret);
+                }
+            }
+            else if (fd == ep_hid_out_fd && (events[n].events & EPOLLIN)) {
                 // USB OUT endpoint received data (from Steam/Proton)
                 uint8_t buf[64];
-                int ret = read(ep2_fd, buf, sizeof(buf));
+                int ret = read(ep_hid_out_fd, buf, sizeof(buf));
                 if (ret > 0) {
                     // Check if it's a SET_REPORT for rumble/triggers (Report ID 0x02)
                     if (buf[0] == 0x02) {
