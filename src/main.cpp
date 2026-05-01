@@ -27,6 +27,11 @@ int main() {
     std::signal(SIGTERM, signal_handler);
 
     int bt_fd = bt_init();
+    if (bt_fd == -1) {
+        printf("Failed to initialize Bluetooth. Exiting.\n");
+        return 1;
+    }
+
     audio_init();
     // usb_init(); // To be implemented
 
@@ -67,7 +72,13 @@ int main() {
         }
 
         for (int n = 0; n < nfds; ++n) {
-            if (events[n].data.fd == bt_fd) {
+            if (events[n].events & (EPOLLERR | EPOLLHUP)) {
+                printf("Error on file descriptor %d\n", events[n].data.fd);
+                daemon_running = false;
+                break;
+            }
+
+            if (events[n].data.fd == bt_fd && (events[n].events & EPOLLIN)) {
                 bt_handle_data();
             }
 
