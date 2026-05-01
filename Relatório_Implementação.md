@@ -127,3 +127,70 @@ Para compilar e gerenciar a nova arquitetura, o ambiente CachyOS necessitará de
 *   `bluez` e `bluez-libs` (Para `<bluetooth/hci.h>`).
 *   Opcional: `libusbgx` (Biblioteca em C para facilitar a manipulação do ConfigFS/FunctionFS, abstraindo os comandos do terminal).
 *   `libopus-dev` (Para a compressão de áudio).
+
+---
+
+## Fase 5 - Status Atual (Code Review)
+
+A implementação da **Fase 5** migrou com sucesso o tratamento de áudio que outrora era gerenciado pelo Pico SDK (TinyUSB) para o ambiente Linux utilizando FunctionFS. Abaixo, pontuamos em detalhes o que foi implementado, os problemas identificados e os próximos passos.
+
+### Features Implementadas
+
+1. **Multiplexação no Linux (`epoll`):**
+   O daemon agora utiliza `epoll` dentro do arquivo `src/main.cpp` para monitorar eventos. A antiga task do TinyUSB (`tud_task()`) foi substituída por um gerenciamento assíncrono que aguarda os sockets Bluetooth (`L2CAP`) e descritores USB do FunctionFS simultaneamente.
+
+2. **Endpoints de Áudio UAC (FunctionFS):**
+   O arquivo `src/usb.cpp` foi alterado para abrir e montar os descritores do Gadget virtual.
+   - `ep_audio_out_fd` foi mapeado para `/dev/ffs/ep1` (Para receber o fluxo de Áudio do Host (Steam/Proton)).
+   - `ep_audio_in_fd` foi mapeado para `/dev/ffs/ep2` (Para enviar o fluxo de Microfone ao Host).
+
+3. **Injeção de Descritores do Gadget USB:**
+   A configuração de dispositivo Composto (HID + UAC) agora é feita pelo preenchimento das estruturas `descriptors` do FunctionFS que são escritas em `ep0_fd` (`/dev/ffs/ep0`). Os tamanhos variáveis como os relatórios HID foram adaptados e os scripts `.py` auxiliaram no dump do `old_usb_descriptors.c`.
+
+4. **Recebimento de Áudio LPCM (`audio_receive_pcm`):**
+   O `epoll` monitora `ep_audio_out_fd` (`EPOLLIN`). Quando recebe dados, lê blocos de pacotes com tamanho máximo definido e passa a função `audio_receive_pcm()` do `src/audio.cpp`.
+
+5. **Tratamento e Compressão do Áudio:**
+   Foi mantido o funcionamento do `WDL_Resampler` (`lib/WDL`) e o encoder do `Opus` (`lib/opus`). O som LPCM resampleado passa pela thread de áudio e é comprimido por OPUS antes de ser empacotado para o DualSense em `src/audio.cpp`.
+
+6. **Script `setup_gadget.sh`:**
+   Desenvolvido para criar o Virtual UDC. Agora é evocado pelo `system()` durante o `usb_init()`.
+
+### Features Faltantes e Bugs Identificados (Ações Necessárias)
+
+1. **Problemas com as permissões de acesso ao Script `setup_gadget.sh`:**
+   Atualmente a função `usb_init()` chama `system("./setup_gadget.sh")`. Este design obriga que o daemon em C++ seja executado como `root` por causa dos comandos do script (`modprobe dummy_hcd` e criação de pastas em `/sys/kernel/config/usb_gadget`), além do script poder quebrar caso os caminhos (Current Working Directory) não apontem precisamente para `./setup_gadget.sh`. Pode ser recomendável criar o gadget USB fora da execução em C++.
+
+2. **Configuração de Build Original:**
+   Existem arquivos referentes ao sistema de build antigo para compilar `.uf2` para o microcontrolador do Pico, tanto no Github Actions quanto no ambiente local, que são incompatíveis com o Linux.
+
+3. **Problema no loop do `epoll` em `main.cpp` (Atenção no Polling e Buffer):**
+   Atualmente no `src/main.cpp`, quando ocorre uma notificação `EPOLLIN` em `ep_audio_out_fd`, ele consome 392 bytes de áudio de uma só vez (`int16_t buf[196]`). Mas, o tamanho real da leitura (`ret = read(...)`) e o limite estipulado nas variáveis não tem verificações pesadas para perdas de desync / frames parciais (Packet Drops).
+
+---
+
+## Arquivos que Podem Ser Removidos
+
+Alguns artefatos e scripts auxiliares desenvolvidos especificamente para as transições anteriores ou que são exclusivos do Raspberry Pi Pico 2W, e não serão utilizados na stack do daemon (CachyOS), podem ser removidos do repositório:
+
+- `.github/workflows/build.yml` (e possivelmente `release.yml`, pois compila para `arm-none-eabi` gerando um `.uf2` do Raspberry Pi Pico, incompatível com a versão Linux daemon).
+- `bt_a3_verify.py`
+- `count_descriptors.py`
+- `descriptors_struct_dump.txt`
+- `generate_descriptors.py`
+- `main_interrupt_in.py`
+- `main_interrupt_out.py`
+- `offset_finder.py`, `offset_finder2.py`, `offset_finder3.py`
+- `patch_main.py`
+- `patch_main_1.diff`
+- `patch_script.sh`
+- `patch_usb.diff`, `patch_usb_2.diff`, `patch_usb_bt.diff`
+- `patch_usb.py`, `patch_usb_h.py`
+- `plan.txt`
+- `setup_env.sh` (Pode ser mantido se quiser automatizar os módulos, porém muitas vezes não faz parte da build `cmake` em si).
+- `test_plan.sh`
+- `test_plan2.py`
+- `usb_handle_ep0_replace.py`
+- `usb_handle_ep0_replace_2.py`
+
+*(Nota: Todos os arquivos que iniciam com `old_` estão preservados no repositório).*
