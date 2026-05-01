@@ -8,6 +8,8 @@ void bt_init() {
 }
 
 void bt_write(uint8_t *data, uint16_t len) {
+    (void)data;
+    (void)len;
     // Stub for Bluetooth Write
     // printf("[BT] Writing %d bytes\n", len);
 }

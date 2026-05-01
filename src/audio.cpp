@@ -185,7 +185,12 @@ void core1_entry() {
         resampler_audio.ResampleOut(out_buf_dbl, nframes, 480, 2); for (int i=0; i<480*2; i++) out_buf[i] = (float)out_buf_dbl[i];
 
         opus_element opus_packet{};
-        (void)opus_encode_float(encoder, out_buf, 480, opus_packet.data, 200);
+        opus_int32 encode_result = opus_encode_float(encoder, out_buf, 480, opus_packet.data, 200);
+        if (encode_result < 0) {
+            // Error handling: if encoding fails, do not queue the packet
+            // printf("[Audio] Opus encode failed: %d\n", encode_result);
+            continue;
+        }
 
         {
             std::lock_guard<std::mutex> lock(opus_fifo_mutex);

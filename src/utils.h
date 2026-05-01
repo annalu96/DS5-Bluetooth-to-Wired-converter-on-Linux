@@ -157,7 +157,7 @@ struct __attribute__((packed)) USBGetStateData { // 63
 };
 
 inline void print_hex(const uint8_t* data,size_t size) {
-    for (int i = 0; i < size; i++) {
+    for (size_t i = 0; i < size; i++) {
         std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(data[i]) << " ";
     }
     std::cout << std::endl;
