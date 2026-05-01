@@ -9,6 +9,7 @@
 #include <cstdint>
 
 void audio_init();
+void audio_deinit();
 void set_headset(bool state);
 void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read);
 
