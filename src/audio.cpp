@@ -13,6 +13,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <atomic>
 
 #include <opus/opus.h>
 #include "utils.h"
@@ -48,6 +49,7 @@ static std::queue<opus_element> opus_fifo;
 static std::mutex opus_fifo_mutex;
 
 static std::thread audio_thread;
+static std::atomic<bool> audio_running{true};
 
 void set_headset(bool state) {
     plug_headset = state;
@@ -142,6 +144,7 @@ void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read) {
             // printf("[Audio] Warning: opus_fifo empty\n");
         }
 
+        fill_output_report_checksum(pkt, sizeof(pkt));
         bt_write(pkt, sizeof(pkt));
         haptic_buf_pos = 0;
     }
@@ -167,11 +170,14 @@ void core1_entry() {
     resampler_audio.SetRates(51200, 48000);
     resampler_audio.SetFeedMode(true);
 
-    while (true) {
+    while (audio_running) {
         audio_raw_element audio_element{};
         {
             std::unique_lock<std::mutex> lock(audio_fifo_mutex);
-            audio_fifo_cv.wait(lock, []{ return !audio_fifo.empty(); });
+            audio_fifo_cv.wait(lock, []{ return !audio_fifo.empty() || !audio_running; });
+            if (!audio_running && audio_fifo.empty()) {
+                break;
+            }
             audio_element = audio_fifo.front();
             audio_fifo.pop();
         }
@@ -208,6 +214,18 @@ void audio_init() {
     resampler.SetFeedMode(true);
 
     // Launch thread instead of multicore core1
+    audio_running = true;
     audio_thread = std::thread(core1_entry);
-    audio_thread.detach(); // Let it run independently
+}
+
+void audio_deinit() {
+    audio_running = false;
+    audio_fifo_cv.notify_all();
+    if (audio_thread.joinable()) {
+        audio_thread.join();
+    }
+    if (encoder) {
+        opus_encoder_destroy(encoder);
+        encoder = nullptr;
+    }
 }

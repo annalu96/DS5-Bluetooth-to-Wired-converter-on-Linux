@@ -8,3 +8,7 @@ float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 void usb_init() {
     // Stub
 }
+
+void usb_deinit() {
+    // Stub
+}

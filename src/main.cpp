@@ -2,6 +2,9 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <csignal>
+#include <atomic>
+#include <cerrno>
 
 #include "bt.h"
 #include "usb.h"
@@ -9,8 +12,19 @@
 
 #define MAX_EVENTS 10
 
+
+std::atomic<bool> daemon_running{true};
+
+void signal_handler(int signum) {
+    printf("\nCaught signal %d. Initiating graceful shutdown...\n", signum);
+    daemon_running = false;
+}
+
 int main() {
     printf("Starting Pico2W DualSense Bridge (Linux Daemon Phase 2 Skeleton)\n");
+
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 
     bt_init();
     audio_init();
@@ -30,9 +44,13 @@ int main() {
     struct epoll_event events[MAX_EVENTS];
 
     printf("Entering main event loop...\n");
-    while (true) {
+    while (daemon_running) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         if (nfds == -1) {
+            if (errno == EINTR) {
+                // Interrupted by signal, just loop again (it will break if daemon_running is false)
+                continue;
+            }
             perror("epoll_wait");
             break;
         }
@@ -50,6 +68,11 @@ int main() {
         }
     }
 
+    printf("Cleaning up...\n");
+    audio_deinit();
+    usb_deinit();
+    bt_deinit();
     close(epoll_fd);
+    printf("Daemon shut down successfully.\n");
     return 0;
 }
