@@ -220,10 +220,15 @@ void audio_init() {
 
 void audio_deinit() {
     audio_running = false;
-    audio_fifo_cv.notify_all();
-    if (audio_thread.joinable()) {
-        audio_thread.join();
+    try {
+        audio_fifo_cv.notify_all();
+        if (audio_thread.joinable()) {
+            audio_thread.join();
+        }
+    } catch (...) {
+        printf("[Audio] Exception caught during audio_thread join.\n");
     }
+
     if (encoder) {
         opus_encoder_destroy(encoder);
         encoder = nullptr;
