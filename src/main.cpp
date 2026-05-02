@@ -152,10 +152,16 @@ int main() {
                 usb_handle_ep0();
             }
             else if (fd == ep_audio_out_fd && (events[n].events & EPOLLIN)) {
-                int16_t buf[196]; // 392 bytes max packet size
-                int ret = read(ep_audio_out_fd, buf, sizeof(buf));
-                if (ret > 0) {
-                    audio_receive_pcm(buf, ret);
+                int16_t buf[196];
+                while (true) {
+                    int ret = read(ep_audio_out_fd, buf, sizeof(buf));
+                    if (ret > 0) {
+                        audio_receive_pcm(buf, ret);
+                    } else if (ret == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                        break;
+                    } else {
+                        break;
+                    }
                 }
             }
             else if (fd == ep_hid_out_fd && (events[n].events & EPOLLIN)) {
