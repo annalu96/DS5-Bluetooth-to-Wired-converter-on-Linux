@@ -118,8 +118,12 @@ int main() {
     }
 
     // Initialize audio (ALSA capture from f_uac1 + Opus encoding)
-    // The ALSA thread will auto-retry connecting to the UAC1 device
-    audio_init();
+    // Only available when UAC1 is enabled (requires UDC with isochronous support)
+    if (uac1_enabled) {
+        audio_init();
+    } else {
+        printf("[Audio] Skipped — UAC1 not available on this UDC.\n");
+    }
 
     struct epoll_event ev;
 
@@ -191,7 +195,9 @@ int main() {
     }
 
     printf("Cleaning up...\n");
-    audio_deinit();
+    if (uac1_enabled) {
+        audio_deinit();
+    }
     usb_deinit();
     bt_deinit();
     close(epoll_fd);

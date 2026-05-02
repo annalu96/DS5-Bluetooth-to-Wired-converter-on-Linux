@@ -9,6 +9,7 @@ GADGET_DIR="/sys/kernel/config/usb_gadget/$GADGET_NAME"
 MOUNT_DIR="/dev/ffs"
 FFS_FUNC_NAME="ffs.ds"
 UAC1_FUNC_NAME="uac1.usb0"
+UAC1_FLAG="/tmp/ds5_uac1_enabled"
 
 echo "[teardown] Starting full gadget cleanup..."
 
@@ -54,19 +55,25 @@ rmdir "$GADGET_DIR/strings/0x409" 2>/dev/null || true
 rmdir "$GADGET_DIR" 2>/dev/null || true
 
 # 8. Force-reload modules to clear any zombie state
-# Only if refcount allows (module is not in use)
 echo "[teardown] Reloading kernel modules to clear stale state..."
 modprobe -r usb_f_uac1 2>/dev/null || true
 modprobe -r u_audio 2>/dev/null || true
 modprobe -r usb_f_fs 2>/dev/null || true
-# Don't unload libcomposite or dummy_hcd — they're shared
+modprobe -r libcomposite 2>/dev/null || true
+# Also unload dummy_hcd to fully reset UDC state across runs
+modprobe -r dummy_hcd 2>/dev/null || true
 sleep 0.5
 
-# Reload them fresh
+# Reload base modules fresh (setup_gadget.sh will load the rest)
+modprobe dummy_hcd 2>/dev/null || true
+modprobe libcomposite 2>/dev/null || true
 modprobe usb_f_fs 2>/dev/null || true
-modprobe usb_f_uac1 2>/dev/null || true
+sleep 0.3
 
-# 9. Verify cleanup
+# 9. Clean up flag file
+rm -f "$UAC1_FLAG" 2>/dev/null || true
+
+# 10. Verify cleanup
 if [ -d "$GADGET_DIR" ]; then
     echo "[teardown] WARNING: Gadget directory still exists at $GADGET_DIR"
     echo "[teardown] Contents:"

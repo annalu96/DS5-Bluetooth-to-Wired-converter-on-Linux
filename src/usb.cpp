@@ -26,6 +26,7 @@ int ep0_fd = -1;
 int ep_hid_in_fd = -1;
 int ep_hid_out_fd = -1;
 bool usb_gadget_bound = false;
+bool uac1_enabled = false;
 
 extern std::map<uint8_t, std::vector<uint8_t>> feature_data;
 
@@ -191,14 +192,20 @@ static bool try_bind_udc() {
     int ret = system("echo dummy_udc.0 > /sys/kernel/config/usb_gadget/dualsense/UDC 2>/dev/null");
     if (ret != 0) return false;
 
-    // Verify binding actually took effect
-    FILE *f = fopen("/sys/class/udc/dummy_udc.0/state", "r");
+    // Verify binding by reading back the UDC file.
+    // If it contains our UDC name, the kernel accepted the bind.
+    // Note: checking /sys/class/udc/dummy_udc.0/state is unreliable —
+    // dummy_hcd shows "not attached" even after a successful bind.
+    FILE *f = fopen("/sys/kernel/config/usb_gadget/dualsense/UDC", "r");
     if (!f) return false;
-    char state[64] = {0};
-    if (fgets(state, sizeof(state), f)) {
+    char udc_name[64] = {0};
+    if (fgets(udc_name, sizeof(udc_name), f)) {
         fclose(f);
-        // After binding, state should not be "not attached"
-        if (strstr(state, "not attached") == NULL) {
+        // Strip trailing newline
+        char *nl = strchr(udc_name, '\n');
+        if (nl) *nl = '\0';
+        if (strlen(udc_name) > 0) {
+            printf("[USB] UDC file confirms bind: '%s'\n", udc_name);
             return true;
         }
     } else {
@@ -207,11 +214,31 @@ static bool try_bind_udc() {
     return false;
 }
 
+static bool check_uac1_flag() {
+    FILE *f = fopen("/tmp/ds5_uac1_enabled", "r");
+    if (!f) return false;
+    char buf[4] = {0};
+    if (fgets(buf, sizeof(buf), f)) {
+        fclose(f);
+        return buf[0] == '1';
+    }
+    fclose(f);
+    return false;
+}
+
 int usb_init() {
     printf("[USB] Running setup_gadget.sh...\n");
     if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
         printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
         return -1;
+    }
+
+    // Check whether setup_gadget.sh enabled UAC1 (depends on UDC capabilities)
+    uac1_enabled = check_uac1_flag();
+    if (uac1_enabled) {
+        printf("[USB] UAC1 audio is ENABLED (real UDC detected).\n");
+    } else {
+        printf("[USB] UAC1 audio is DISABLED (dummy_hcd — no isochronous support).\n");
     }
 
     // Patch HID report descriptor length into the descriptors

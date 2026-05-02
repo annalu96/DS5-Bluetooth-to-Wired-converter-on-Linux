@@ -38,3 +38,17 @@ target_link_libraries(dualsense_bridge PRIVATE
     ${BLUEZ_LIBRARIES}
     ${ALSA_LIBRARIES}
 )
+
+# Copy shell scripts to build directory so the daemon finds the latest versions
+add_custom_command(TARGET dualsense_bridge POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/setup_gadget.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/setup_gadget.sh
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/teardown_gadget.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/teardown_gadget.sh
+    COMMAND chmod +x
+        ${CMAKE_CURRENT_BINARY_DIR}/setup_gadget.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/teardown_gadget.sh
+    COMMENT "Copying gadget scripts to build directory"
+)

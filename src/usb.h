@@ -10,6 +10,7 @@ extern int ep0_fd;
 extern int ep_hid_in_fd;
 extern int ep_hid_out_fd;
 extern bool usb_gadget_bound;
+extern bool uac1_enabled;
 
 int usb_init();
 void usb_deinit();
