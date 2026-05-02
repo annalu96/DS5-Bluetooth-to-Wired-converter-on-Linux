@@ -59,8 +59,8 @@ struct usb_ext_descriptors descriptors = {
         .length = htole32(sizeof(descriptors)),
         .flags = htole32(FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC),
     },
-    .fs_count = htole32(23),
-    .hs_count = htole32(23),
+    .fs_count = htole32(24),
+    .hs_count = htole32(24),
     .fs_desc = {
         0x09, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00,
         0x00, 0x0A, 0x24, 0x01, 0x00, 0x01, 0x49, 0x00,
