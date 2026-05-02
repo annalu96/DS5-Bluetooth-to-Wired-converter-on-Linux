@@ -1,0 +1,5 @@
+# DualSense Bluetooth MAC addresses (one per line)
+# Find with: bluetoothctl devices
+# Format: AA:BB:CC:DD:EE:FF
+24:A6:FA:6F:63:8F
+24:A6:FA:6D:BE:4E

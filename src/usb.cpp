@@ -334,39 +334,96 @@ void usb_deinit() {
 #endif
 
 void usb_handle_ep0() {
-    struct usb_ctrlrequest setup;
-    int ret = read(ep0_fd, &setup, sizeof(setup));
+    // FunctionFS can batch multiple events in one read().
+    // Read up to 8 events at a time to avoid missing SETUP requests.
+    struct usb_functionfs_event events[8];
+    int ret = read(ep0_fd, events, sizeof(events));
     if (ret < 0) {
-        // Not all kernels pass all setup packets.
-        // A read error might just mean there's no valid setup packet pending or an interruption.
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            perror("[USB] ep0 read error");
         return;
     }
 
     if (ret == 0) {
-        printf("[USB] ep0 closed?!\n");
+        printf("[USB] ep0: got 0 bytes (closed?)\n");
         return;
     }
+
+    int num_events = ret / sizeof(struct usb_functionfs_event);
+    if (ret % sizeof(struct usb_functionfs_event) != 0) {
+        printf("[USB] ep0: unexpected read size %d (not multiple of %lu)\n",
+               ret, sizeof(struct usb_functionfs_event));
+        // Debug: print raw bytes
+        uint8_t *raw = (uint8_t *)events;
+        printf("[USB] ep0 raw: ");
+        for (int i = 0; i < ret && i < 64; i++) printf("%02x ", raw[i]);
+        printf("\n");
+        return;
+    }
+
+    for (int ev_idx = 0; ev_idx < num_events; ev_idx++) {
+    struct usb_functionfs_event &event = events[ev_idx];
+
+    // Handle FunctionFS lifecycle events
+    switch (event.type) {
+    case FUNCTIONFS_BIND:
+        printf("[USB] EP0 event: BIND\n");
+        continue;
+    case FUNCTIONFS_UNBIND:
+        printf("[USB] EP0 event: UNBIND\n");
+        continue;
+    case FUNCTIONFS_ENABLE:
+        printf("[USB] EP0 event: ENABLE (host configured the gadget)\n");
+        continue;
+    case FUNCTIONFS_DISABLE:
+        printf("[USB] EP0 event: DISABLE\n");
+        continue;
+    case FUNCTIONFS_SUSPEND:
+        printf("[USB] EP0 event: SUSPEND\n");
+        continue;
+    case FUNCTIONFS_RESUME:
+        printf("[USB] EP0 event: RESUME\n");
+        continue;
+    case FUNCTIONFS_SETUP:
+        // Process setup request below
+        break;
+    default:
+        printf("[USB] EP0 unknown event type: %d\n", event.type);
+        continue;
+    }
+
+    // Extract the USB control request from the FFS event
+    struct usb_ctrlrequest setup = event.u.setup;
 
     if (setup.bRequestType & USB_DIR_IN) {
         // Host is reading from us
         if ((setup.bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD) {
             if (setup.bRequest == USB_REQ_GET_DESCRIPTOR) {
                 if ((setup.wValue >> 8) == HID_DT_REPORT) {
-                    // printf("[USB] Sending HID Report Descriptor...\n");
+                    printf("[USB] Sending HID Report Descriptor (%u bytes)...\n", desc_hid_report_ds_len);
                     write(ep0_fd, desc_hid_report_ds, desc_hid_report_ds_len);
+                } else if ((setup.wValue >> 8) == HID_DT_HID) {
+                    // Host is requesting the 9-byte HID class descriptor
+                    printf("[USB] Sending HID Class Descriptor (9 bytes)...\n");
+                    struct usb_hid_descriptor hid_desc = descriptors.hs_hid;
+                    hid_desc.wDescriptorLength = htole16(desc_hid_report_ds_len);
+                    write(ep0_fd, &hid_desc, sizeof(hid_desc));
                 } else {
                     // Stall other descriptor requests we don't handle
                     // FunctionFS handles most standard requests internally anyway
                     // This is for ones explicitly forwarded to user space
+                    printf("[USB] STALL: GET_DESCRIPTOR type=0x%02x\n", setup.wValue >> 8);
                     read(ep0_fd, NULL, 0);
                 }
             } else {
-                 read(ep0_fd, NULL, 0);
+                printf("[USB] STALL: Standard IN request bRequest=0x%02x\n", setup.bRequest);
+                read(ep0_fd, NULL, 0);
             }
         } else if ((setup.bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
             if (setup.bRequest == HID_REQ_GET_REPORT) {
                  uint8_t report_type = setup.wValue >> 8;
                  uint8_t report_id = setup.wValue & 0xFF;
+                 printf("[USB] GET_REPORT type=%u id=0x%02x len=%u\n", report_type, report_id, setup.wLength);
 
                  if (report_type == 3) { // Feature Report
                      if (feature_data.find(report_id) != feature_data.end()) {
@@ -396,14 +453,23 @@ void usb_handle_ep0() {
                      memset(buf, 0, sizeof(buf));
                      write(ep0_fd, buf, setup.wLength);
                  }
+            } else if (setup.bRequest == HID_REQ_GET_IDLE) {
+                printf("[USB] GET_IDLE\n");
+                uint8_t idle_rate = 0; // Indefinite
+                write(ep0_fd, &idle_rate, 1);
+            } else if (setup.bRequest == HID_REQ_GET_PROTOCOL) {
+                printf("[USB] GET_PROTOCOL\n");
+                uint8_t protocol = 1; // Report protocol
+                write(ep0_fd, &protocol, 1);
             } else {
+                printf("[USB] STALL: Class IN request bRequest=0x%02x\n", setup.bRequest);
                 read(ep0_fd, NULL, 0);
             }
         } else {
             read(ep0_fd, NULL, 0); // Stall
         }
     } else {
-        // Host is writing to us
+        // Host is writing to us (OUT direction)
         if ((setup.bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
             if (setup.bRequest == HID_REQ_SET_REPORT) {
                  uint8_t buf[256];
@@ -412,6 +478,7 @@ void usb_handle_ep0() {
                      if (ret > 0) {
                          uint8_t report_type = setup.wValue >> 8;
                          uint8_t report_id = setup.wValue & 0xFF;
+                         printf("[USB] SET_REPORT type=%u id=0x%02x len=%d\n", report_type, report_id, ret);
 
                          if (report_type == 3) { // Feature Report
                              uint8_t final_buf[256];
@@ -432,14 +499,30 @@ void usb_handle_ep0() {
                      uint8_t discard[256];
                      read(ep0_fd, discard, setup.wLength > sizeof(discard) ? sizeof(discard) : setup.wLength);
                  }
-                 read(ep0_fd, NULL, 0); // Acknowledge status stage
+                 // Note: FunctionFS handles status stage automatically for OUT requests
+            } else if (setup.bRequest == HID_REQ_SET_IDLE) {
+                printf("[USB] SET_IDLE value=0x%04x\n", setup.wValue);
+                // Acknowledge — FunctionFS handles status stage for OUT with wLength==0
+                // Just need to not stall
+                if (setup.wLength == 0) {
+                    read(ep0_fd, NULL, 0); // Acknowledge status stage
+                }
+            } else if (setup.bRequest == HID_REQ_SET_PROTOCOL) {
+                printf("[USB] SET_PROTOCOL value=0x%04x\n", setup.wValue);
+                if (setup.wLength == 0) {
+                    read(ep0_fd, NULL, 0); // Acknowledge status stage
+                }
             } else {
-                 read(ep0_fd, NULL, 0);
+                printf("[USB] STALL: Class OUT request bRequest=0x%02x\n", setup.bRequest);
+                read(ep0_fd, NULL, 0);
             }
         } else {
-             read(ep0_fd, NULL, 0);
+            printf("[USB] STALL: Non-class OUT request type=0x%02x req=0x%02x\n",
+                   setup.bRequestType, setup.bRequest);
+            read(ep0_fd, NULL, 0);
         }
     }
+    } // end for each event
 }
 
 void usb_process_pending_feature(uint8_t report_id) {
