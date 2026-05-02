@@ -151,10 +151,10 @@ int usb_init() {
     }
 
     // Since we dynamically initialized desc_hid_report_ds_len, we need to set wDescriptorLength
-    descriptors.fs_desc[203] = desc_hid_report_ds_len & 0xFF;
-    descriptors.fs_desc[204] = (desc_hid_report_ds_len >> 8) & 0xFF;
-    descriptors.hs_desc[203] = desc_hid_report_ds_len & 0xFF;
-    descriptors.hs_desc[204] = (desc_hid_report_ds_len >> 8) & 0xFF;
+    descriptors.fs_desc[202] = desc_hid_report_ds_len & 0xFF;
+    descriptors.fs_desc[203] = (desc_hid_report_ds_len >> 8) & 0xFF;
+    descriptors.hs_desc[202] = desc_hid_report_ds_len & 0xFF;
+    descriptors.hs_desc[203] = (desc_hid_report_ds_len >> 8) & 0xFF;
 
     printf("[USB] Opening FFS ep0...\n");
     ep0_fd = open("/dev/ffs/ep0", O_RDWR);
