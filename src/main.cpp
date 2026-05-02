@@ -90,7 +90,9 @@ int main() {
 
     if (usb_init() < 0) {
         printf("Failed to initialize USB FunctionFS. Exiting.\n");
-        return 1;
+        // Allow graceful cleanup to avoid kernel panic on umount
+        daemon_running = false;
+        goto cleanup;
     }
 
     struct epoll_event ev;
@@ -101,7 +103,8 @@ int main() {
         ev.data.fd = ep0_fd;
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep0_fd, &ev) == -1) {
             perror("epoll_ctl: ep0_fd");
-            return 1;
+            daemon_running = false;
+            goto cleanup;
         }
     }
 
@@ -111,7 +114,8 @@ int main() {
         ev.data.fd = ep_hid_out_fd;
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_hid_out_fd, &ev) == -1) {
             perror("epoll_ctl: ep_hid_out_fd");
-            return 1;
+            daemon_running = false;
+            goto cleanup;
         }
     }
 
@@ -121,7 +125,8 @@ int main() {
         ev.data.fd = ep_audio_out_fd;
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_audio_out_fd, &ev) == -1) {
             perror("epoll_ctl: ep_audio_out_fd");
-            return 1;
+            daemon_running = false;
+            goto cleanup;
         }
     }
 
@@ -198,6 +203,7 @@ int main() {
         }
     }
 
+cleanup:
     printf("Cleaning up...\n");
     audio_deinit();
     usb_deinit();

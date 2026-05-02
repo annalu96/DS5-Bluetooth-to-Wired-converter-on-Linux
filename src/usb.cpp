@@ -128,18 +128,18 @@ struct {
     struct usb_functionfs_strings_head header;
     struct {
         __le16 code;
-        const char str1[32]; // "DualSense HID"
+        char str1[14]; // "DualSense HID" (13 chars + null terminator)
     } __attribute__((packed)) lang0;
 } __attribute__((packed)) strings = {
     .header = {
-        .magic = htole32(FUNCTIONFS_STRINGS_MAGIC),
+        .magic = htole32(2), /* FUNCTIONFS_STRINGS_MAGIC */
         .length = htole32(sizeof(strings)),
         .str_count = htole32(1),
         .lang_count = htole32(1),
     },
     .lang0 = {
         .code = htole16(0x0409),
-        .str1 = "DualSense HID",
+        .str1 = "DualSense HID"
     },
 };
 
@@ -147,7 +147,7 @@ int usb_init() {
     printf("[USB] Running setup_gadget.sh...\n");
     if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
         printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
-        // return -1;
+        return -1;
     }
 
     // Since we dynamically initialized desc_hid_report_ds_len, we need to set wDescriptorLength
