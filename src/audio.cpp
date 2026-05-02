@@ -1,5 +1,8 @@
 //
-// Refactored for Linux (Fase 2)
+// Refactored for Linux (Fase 5 - ALSA integration via f_uac1)
+//
+// Audio is now read from the ALSA device created by the kernel's
+// f_uac1 gadget driver, instead of raw FunctionFS endpoint reads.
 //
 
 #include "audio.h"
@@ -16,6 +19,7 @@
 #include <atomic>
 
 #include <opus/opus.h>
+#include <alsa/asoundlib.h>
 #include "utils.h"
 
 #define INPUT_CHANNELS    4
@@ -23,8 +27,10 @@
 #define SAMPLE_SIZE       64
 #define REPORT_SIZE       398
 #define REPORT_ID         0x36
-// #define VOLUME_GAIN       2
 #define BUFFER_LENGTH     48
+
+// ALSA capture period: number of frames per read
+#define ALSA_PERIOD_FRAMES  48  // ~1ms at 48kHz
 
 using std::clamp;
 using std::max;
@@ -49,19 +55,97 @@ static std::queue<opus_element> opus_fifo;
 static std::mutex opus_fifo_mutex;
 
 static std::thread audio_thread;
+static std::thread alsa_capture_thread;
 static std::atomic<bool> audio_running{true};
+
+// ALSA PCM handle for capture (playback from host perspective)
+static snd_pcm_t *alsa_pcm = nullptr;
 
 void set_headset(bool state) {
     plug_headset = state;
 }
 
-// Stub function to replace tud_audio_read
-// This will be called to pass PCM data to the audio module from the main epoll loop
-void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read) {
-    int frames = bytes_read / (INPUT_CHANNELS * sizeof(int16_t));
-    if (frames == 0) {
-        return;
+// Find the ALSA device name for the UAC1 gadget
+static std::string find_uac1_alsa_device() {
+    // The f_uac1 kernel driver creates an ALSA card.
+    // We need to find it by scanning available cards.
+    // The card name is typically "UAC1Gadget" or "UAC1_Gadget".
+    
+    int card = -1;
+    while (snd_card_next(&card) == 0 && card >= 0) {
+        char *name = nullptr;
+        if (snd_card_get_name(card, &name) == 0 && name) {
+            std::string card_name(name);
+            free(name);
+            
+            printf("[Audio] Found ALSA card %d: %s\n", card, card_name.c_str());
+            
+            // f_uac1 typically creates a card with "UAC1" in the name
+            if (card_name.find("UAC1") != std::string::npos ||
+                card_name.find("uac1") != std::string::npos ||
+                card_name.find("Gadget") != std::string::npos) {
+                // Return the hardware device string
+                char dev[32];
+                snprintf(dev, sizeof(dev), "hw:%d,0", card);
+                printf("[Audio] Using ALSA device: %s (%s)\n", dev, card_name.c_str());
+                return std::string(dev);
+            }
+        }
     }
+    
+    // Fallback: try to use a default name
+    printf("[Audio] UAC1 ALSA card not found, falling back to 'hw:UAC1Gadget'\n");
+    return "hw:UAC1Gadget";
+}
+
+// Open ALSA PCM device for capture (reading audio from host)
+static int alsa_open() {
+    std::string device = find_uac1_alsa_device();
+    
+    int err = snd_pcm_open(&alsa_pcm, device.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+    if (err < 0) {
+        printf("[Audio] Cannot open ALSA device '%s': %s\n", device.c_str(), snd_strerror(err));
+        printf("[Audio] Audio will not be available until the gadget is bound.\n");
+        return -1;
+    }
+
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_hw_params_alloca(&hw_params);
+    snd_pcm_hw_params_any(alsa_pcm, hw_params);
+
+    // Set parameters matching the DualSense: 4ch, 48kHz, 16-bit
+    snd_pcm_hw_params_set_access(alsa_pcm, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED);
+    snd_pcm_hw_params_set_format(alsa_pcm, hw_params, SND_PCM_FORMAT_S16_LE);
+
+    unsigned int rate = 48000;
+    snd_pcm_hw_params_set_rate_near(alsa_pcm, hw_params, &rate, 0);
+
+    unsigned int channels = INPUT_CHANNELS;
+    snd_pcm_hw_params_set_channels(alsa_pcm, hw_params, channels);
+
+    snd_pcm_uframes_t period_size = ALSA_PERIOD_FRAMES;
+    snd_pcm_hw_params_set_period_size_near(alsa_pcm, hw_params, &period_size, 0);
+
+    snd_pcm_uframes_t buffer_size = period_size * 4;
+    snd_pcm_hw_params_set_buffer_size_near(alsa_pcm, hw_params, &buffer_size);
+
+    err = snd_pcm_hw_params(alsa_pcm, hw_params);
+    if (err < 0) {
+        printf("[Audio] Cannot set ALSA hw params: %s\n", snd_strerror(err));
+        snd_pcm_close(alsa_pcm);
+        alsa_pcm = nullptr;
+        return -1;
+    }
+
+    printf("[Audio] ALSA opened: rate=%u, channels=%u, period=%lu, buffer=%lu\n",
+           rate, channels, (unsigned long)period_size, (unsigned long)buffer_size);
+
+    return 0;
+}
+
+// Process received PCM data (same logic as before, but called from ALSA thread)
+static void process_pcm_data(const int16_t* raw, uint32_t frames) {
+    if (frames == 0) return;
 
     static float audio_buf[512 * 2];
     static uint audio_buf_pos = 0;
@@ -140,14 +224,65 @@ void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read) {
             pkt[77] = (plug_headset ? 0x16 : 0x13) | 0 << 6 | 1 << 7;
             pkt[78] = 200;
             memcpy(pkt + 79, opus_packet.data, 200);
-        } else {
-            // printf("[Audio] Warning: opus_fifo empty\n");
         }
 
         fill_output_report_checksum(pkt, sizeof(pkt));
-        bt_write(INTERRUPT, pkt, sizeof(pkt)); // 0x02 is HCI_ACLDATA_PKT
+        bt_write(INTERRUPT, pkt, sizeof(pkt));
         haptic_buf_pos = 0;
     }
+}
+
+// Thread that reads PCM audio from the ALSA device (f_uac1)
+static void alsa_capture_entry() {
+    printf("[Audio] ALSA capture thread started.\n");
+    
+    // Wait a bit for the gadget to be fully bound before trying to open ALSA
+    // The UAC1 ALSA card is only created after the gadget is bound to the UDC
+    int retries = 0;
+    while (audio_running && alsa_pcm == nullptr) {
+        if (alsa_open() == 0) {
+            break;
+        }
+        retries++;
+        if (retries > 30) {
+            printf("[Audio] Gave up waiting for ALSA device after %d retries.\n", retries);
+            return;
+        }
+        printf("[Audio] Waiting for ALSA device... (retry %d)\n", retries);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    
+    if (!alsa_pcm) return;
+
+    int16_t buf[ALSA_PERIOD_FRAMES * INPUT_CHANNELS];
+    
+    while (audio_running) {
+        snd_pcm_sframes_t frames = snd_pcm_readi(alsa_pcm, buf, ALSA_PERIOD_FRAMES);
+        if (frames < 0) {
+            if (frames == -EPIPE) {
+                // Buffer overrun
+                snd_pcm_prepare(alsa_pcm);
+                continue;
+            } else if (frames == -EAGAIN) {
+                continue;
+            } else {
+                printf("[Audio] ALSA read error: %s\n", snd_strerror(frames));
+                // Try to recover
+                int err = snd_pcm_recover(alsa_pcm, frames, 1);
+                if (err < 0) {
+                    printf("[Audio] ALSA recovery failed: %s\n", snd_strerror(err));
+                    break;
+                }
+                continue;
+            }
+        }
+        
+        if (frames > 0) {
+            process_pcm_data(buf, frames);
+        }
+    }
+    
+    printf("[Audio] ALSA capture thread exiting.\n");
 }
 
 
@@ -193,8 +328,6 @@ void core1_entry() {
         opus_element opus_packet{};
         opus_int32 encode_result = opus_encode_float(encoder, out_buf, 480, opus_packet.data, 200);
         if (encode_result < 0) {
-            // Error handling: if encoding fails, do not queue the packet
-            // printf("[Audio] Opus encode failed: %d\n", encode_result);
             continue;
         }
 
@@ -213,16 +346,27 @@ void audio_init() {
     resampler.SetRates(48000, 3000);
     resampler.SetFeedMode(true);
 
-    // Launch thread instead of multicore core1
+    // Launch Opus encoder thread
     audio_running = true;
     audio_thread = std::thread(core1_entry);
+    
+    // Launch ALSA capture thread (reads PCM from f_uac1 gadget)
+    alsa_capture_thread = std::thread(alsa_capture_entry);
 }
 
 void audio_deinit() {
     audio_running = false;
     audio_fifo_cv.notify_all();
+    
+    if (alsa_capture_thread.joinable()) {
+        alsa_capture_thread.join();
+    }
     if (audio_thread.joinable()) {
         audio_thread.join();
+    }
+    if (alsa_pcm) {
+        snd_pcm_close(alsa_pcm);
+        alsa_pcm = nullptr;
     }
     if (encoder) {
         opus_encoder_destroy(encoder);

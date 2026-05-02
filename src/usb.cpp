@@ -23,8 +23,6 @@ uint8_t mute[2] = {0}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 
 int ep0_fd = -1;
-int ep_audio_out_fd = -1;
-int ep_audio_in_fd = -1;
 int ep_hid_in_fd = -1;
 int ep_hid_out_fd = -1;
 
@@ -44,83 +42,128 @@ struct usb_hid_descriptor {
     __le16 wDescriptorLength;
 } __attribute__((packed));
 
+/*
+ * FunctionFS descriptors — HID ONLY
+ *
+ * Audio is now handled by the kernel's f_uac1 driver via ConfigFS.
+ * FunctionFS only describes the HID interface + 2 endpoints:
+ *   - Interface 0: HID (class 0x03), 2 endpoints
+ *   - HID class descriptor (9 bytes)
+ *   - EP1 IN  (0x81): Interrupt, 64 bytes — HID reports from controller
+ *   - EP2 OUT (0x02): Interrupt, 64 bytes — HID output reports (rumble, LEDs)
+ *
+ * FunctionFS will remap interface numbers and endpoint addresses
+ * when the gadget is bound to the UDC. We use sequential numbering.
+ */
+
+// HID-only descriptor data (32 bytes per speed)
+// 4 descriptors: Interface + HID + EP IN + EP OUT
 struct usb_ext_descriptors {
     struct usb_functionfs_descs_head_v2 header;
     __le32 fs_count;
     __le32 hs_count;
 
-    uint8_t fs_desc[218];
-    uint8_t hs_desc[218];
+    // Full-speed descriptors
+    // Interface Descriptor (9 bytes)
+    struct usb_interface_descriptor fs_intf;
+    // HID Descriptor (9 bytes)
+    struct usb_hid_descriptor fs_hid;
+    // Endpoint IN Descriptor (7 bytes)
+    struct usb_endpoint_descriptor_no_audio fs_ep_in;
+    // Endpoint OUT Descriptor (7 bytes)
+    struct usb_endpoint_descriptor_no_audio fs_ep_out;
+
+    // High-speed descriptors (same layout)
+    struct usb_interface_descriptor hs_intf;
+    struct usb_hid_descriptor hs_hid;
+    struct usb_endpoint_descriptor_no_audio hs_ep_in;
+    struct usb_endpoint_descriptor_no_audio hs_ep_out;
 } __attribute__((packed));
 
-struct usb_ext_descriptors descriptors = {
+static struct usb_ext_descriptors descriptors = {
     .header = {
         .magic = htole32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2),
         .length = htole32(sizeof(descriptors)),
         .flags = htole32(FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC),
     },
-    .fs_count = htole32(24),
-    .hs_count = htole32(24),
-    .fs_desc = {
-        0x09, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00,
-        0x00, 0x0A, 0x24, 0x01, 0x00, 0x01, 0x49, 0x00,
-        0x02, 0x01, 0x02, 0x0C, 0x24, 0x02, 0x01, 0x01,
-        0x01, 0x06, 0x04, 0x33, 0x00, 0x00, 0x00, 0x0C,
-        0x24, 0x06, 0x02, 0x01, 0x01, 0x03, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x09, 0x24, 0x03, 0x03, 0x01,
-        0x03, 0x04, 0x02, 0x00, 0x0C, 0x24, 0x02, 0x04,
-        0x02, 0x04, 0x03, 0x02, 0x03, 0x00, 0x00, 0x00,
-        0x09, 0x24, 0x06, 0x05, 0x04, 0x01, 0x03, 0x00,
-        0x00, 0x09, 0x24, 0x03, 0x06, 0x01, 0x01, 0x01,
-        0x05, 0x00, 0x09, 0x04, 0x01, 0x00, 0x00, 0x01,
-        0x02, 0x00, 0x00, 0x09, 0x04, 0x01, 0x01, 0x01,
-        0x01, 0x02, 0x00, 0x00, 0x07, 0x24, 0x01, 0x01,
-        0x01, 0x01, 0x00, 0x0B, 0x24, 0x02, 0x01, 0x04,
-        0x02, 0x10, 0x01, 0x80, 0xBB, 0x00, 0x09, 0x05,
-        0x01, 0x09, 0x88, 0x01, 0x01, 0x00, 0x00, 0x07,
-        0x25, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x04,
-        0x02, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x09,
-        0x04, 0x02, 0x01, 0x01, 0x01, 0x02, 0x00, 0x00,
-        0x07, 0x24, 0x01, 0x06, 0x01, 0x01, 0x00, 0x0B,
-        0x24, 0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x80,
-        0xBB, 0x00, 0x09, 0x05, 0x82, 0x05, 0xC4, 0x00,
-        0x01, 0x00, 0x00, 0x07, 0x25, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x09, 0x04, 0x03, 0x00, 0x02, 0x03,
-        0x00, 0x00, 0x00, 0x09, 0x21, 0x11, 0x01, 0x00,
-        0x01, 0x22, 0x95, 0x01, 0x07, 0x05,
-        0x84, 0x03, 0x40, 0x00, 0x01, 0x07, 0x05, 0x03,
-        0x03, 0x40, 0x00, 0x01
+    .fs_count = htole32(4), // Interface + HID + EP_IN + EP_OUT
+    .hs_count = htole32(4),
+
+    // === Full-Speed Descriptors ===
+    .fs_intf = {
+        .bLength            = sizeof(struct usb_interface_descriptor),  // 9
+        .bDescriptorType    = USB_DT_INTERFACE,                        // 0x04
+        .bInterfaceNumber   = 0,
+        .bAlternateSetting  = 0,
+        .bNumEndpoints      = 2,
+        .bInterfaceClass    = USB_CLASS_HID,                           // 0x03
+        .bInterfaceSubClass = 0,
+        .bInterfaceProtocol = 0,
+        .iInterface         = 0,
     },
-    .hs_desc = {
-        0x09, 0x04, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00,
-        0x00, 0x0A, 0x24, 0x01, 0x00, 0x01, 0x49, 0x00,
-        0x02, 0x01, 0x02, 0x0C, 0x24, 0x02, 0x01, 0x01,
-        0x01, 0x06, 0x04, 0x33, 0x00, 0x00, 0x00, 0x0C,
-        0x24, 0x06, 0x02, 0x01, 0x01, 0x03, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x09, 0x24, 0x03, 0x03, 0x01,
-        0x03, 0x04, 0x02, 0x00, 0x0C, 0x24, 0x02, 0x04,
-        0x02, 0x04, 0x03, 0x02, 0x03, 0x00, 0x00, 0x00,
-        0x09, 0x24, 0x06, 0x05, 0x04, 0x01, 0x03, 0x00,
-        0x00, 0x09, 0x24, 0x03, 0x06, 0x01, 0x01, 0x01,
-        0x05, 0x00, 0x09, 0x04, 0x01, 0x00, 0x00, 0x01,
-        0x02, 0x00, 0x00, 0x09, 0x04, 0x01, 0x01, 0x01,
-        0x01, 0x02, 0x00, 0x00, 0x07, 0x24, 0x01, 0x01,
-        0x01, 0x01, 0x00, 0x0B, 0x24, 0x02, 0x01, 0x04,
-        0x02, 0x10, 0x01, 0x80, 0xBB, 0x00, 0x09, 0x05,
-        0x01, 0x09, 0x88, 0x01, 0x01, 0x00, 0x00, 0x07,
-        0x25, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x04,
-        0x02, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x09,
-        0x04, 0x02, 0x01, 0x01, 0x01, 0x02, 0x00, 0x00,
-        0x07, 0x24, 0x01, 0x06, 0x01, 0x01, 0x00, 0x0B,
-        0x24, 0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x80,
-        0xBB, 0x00, 0x09, 0x05, 0x82, 0x05, 0xC4, 0x00,
-        0x01, 0x00, 0x00, 0x07, 0x25, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x09, 0x04, 0x03, 0x00, 0x02, 0x03,
-        0x00, 0x00, 0x00, 0x09, 0x21, 0x11, 0x01, 0x00,
-        0x01, 0x22, 0x95, 0x01, 0x07, 0x05,
-        0x84, 0x03, 0x40, 0x00, 0x01, 0x07, 0x05, 0x03,
-        0x03, 0x40, 0x00, 0x01
-    }
+    .fs_hid = {
+        .bLength              = sizeof(struct usb_hid_descriptor),     // 9
+        .bDescriptorType      = HID_DT_HID,                           // 0x21
+        .bcdHID               = htole16(0x0111),                       // HID 1.11
+        .bCountryCode         = 0,
+        .bNumDescriptors      = 1,
+        .bReportDescriptorType = HID_DT_REPORT,                       // 0x22
+        .wDescriptorLength    = htole16(0),  // patched at runtime with desc_hid_report_ds_len
+    },
+    .fs_ep_in = {
+        .bLength          = sizeof(struct usb_endpoint_descriptor_no_audio),  // 7
+        .bDescriptorType  = USB_DT_ENDPOINT,                                  // 0x05
+        .bEndpointAddress = 0x81,  // EP1 IN
+        .bmAttributes     = USB_ENDPOINT_XFER_INT,                             // 0x03 Interrupt
+        .wMaxPacketSize   = htole16(64),
+        .bInterval        = 1,  // 1ms polling
+    },
+    .fs_ep_out = {
+        .bLength          = sizeof(struct usb_endpoint_descriptor_no_audio),  // 7
+        .bDescriptorType  = USB_DT_ENDPOINT,                                  // 0x05
+        .bEndpointAddress = 0x02,  // EP2 OUT
+        .bmAttributes     = USB_ENDPOINT_XFER_INT,                             // 0x03 Interrupt
+        .wMaxPacketSize   = htole16(64),
+        .bInterval        = 1,  // 1ms polling
+    },
+
+    // === High-Speed Descriptors (identical) ===
+    .hs_intf = {
+        .bLength            = sizeof(struct usb_interface_descriptor),
+        .bDescriptorType    = USB_DT_INTERFACE,
+        .bInterfaceNumber   = 0,
+        .bAlternateSetting  = 0,
+        .bNumEndpoints      = 2,
+        .bInterfaceClass    = USB_CLASS_HID,
+        .bInterfaceSubClass = 0,
+        .bInterfaceProtocol = 0,
+        .iInterface         = 0,
+    },
+    .hs_hid = {
+        .bLength              = sizeof(struct usb_hid_descriptor),
+        .bDescriptorType      = HID_DT_HID,
+        .bcdHID               = htole16(0x0111),
+        .bCountryCode         = 0,
+        .bNumDescriptors      = 1,
+        .bReportDescriptorType = HID_DT_REPORT,
+        .wDescriptorLength    = htole16(0),  // patched at runtime
+    },
+    .hs_ep_in = {
+        .bLength          = sizeof(struct usb_endpoint_descriptor_no_audio),
+        .bDescriptorType  = USB_DT_ENDPOINT,
+        .bEndpointAddress = 0x81,  // EP1 IN
+        .bmAttributes     = USB_ENDPOINT_XFER_INT,
+        .wMaxPacketSize   = htole16(64),
+        .bInterval        = 1,
+    },
+    .hs_ep_out = {
+        .bLength          = sizeof(struct usb_endpoint_descriptor_no_audio),
+        .bDescriptorType  = USB_DT_ENDPOINT,
+        .bEndpointAddress = 0x02,  // EP2 OUT
+        .bmAttributes     = USB_ENDPOINT_XFER_INT,
+        .wMaxPacketSize   = htole16(64),
+        .bInterval        = 1,
+    },
 };
 
 
@@ -150,11 +193,9 @@ int usb_init() {
         // return -1;
     }
 
-    // Since we dynamically initialized desc_hid_report_ds_len, we need to set wDescriptorLength
-    descriptors.fs_desc[202] = desc_hid_report_ds_len & 0xFF;
-    descriptors.fs_desc[203] = (desc_hid_report_ds_len >> 8) & 0xFF;
-    descriptors.hs_desc[202] = desc_hid_report_ds_len & 0xFF;
-    descriptors.hs_desc[203] = (desc_hid_report_ds_len >> 8) & 0xFF;
+    // Patch HID report descriptor length into the descriptors
+    descriptors.fs_hid.wDescriptorLength = htole16(desc_hid_report_ds_len);
+    descriptors.hs_hid.wDescriptorLength = htole16(desc_hid_report_ds_len);
 
     printf("[USB] Opening FFS ep0...\n");
     ep0_fd = open("/dev/ffs/ep0", O_RDWR);
@@ -163,11 +204,14 @@ int usb_init() {
         return -1;
     }
 
-    printf("[USB] Writing descriptors...\n");
-    if (write(ep0_fd, &descriptors, sizeof(descriptors)) < 0) {
+    printf("[USB] Writing descriptors (%lu bytes)...\n", sizeof(descriptors));
+    ssize_t ret = write(ep0_fd, &descriptors, sizeof(descriptors));
+    if (ret < 0) {
         perror("[USB] Failed to write descriptors");
+        printf("[USB] errno=%d (%s)\n", errno, strerror(errno));
         return -1;
     }
+    printf("[USB] Descriptors written successfully (%zd bytes).\n", ret);
 
     printf("[USB] Writing strings...\n");
     if (write(ep0_fd, &strings, sizeof(strings)) < 0) {
@@ -177,31 +221,20 @@ int usb_init() {
 
     printf("[USB] Descriptors and strings written. Opening endpoints...\n");
 
-    ep_audio_out_fd = open("/dev/ffs/ep1", O_RDWR | O_NONBLOCK);
-    if (ep_audio_out_fd < 0) {
-        perror("[USB] Failed to open ep1 (Audio OUT)");
-        return -1;
-    }
-
-    ep_audio_in_fd = open("/dev/ffs/ep2", O_RDWR | O_NONBLOCK);
-    if (ep_audio_in_fd < 0) {
-        perror("[USB] Failed to open ep2 (Audio IN)");
-        return -1;
-    }
-
-
-    ep_hid_in_fd = open("/dev/ffs/ep3", O_RDWR | O_NONBLOCK);
+    // FunctionFS now only has HID endpoints:
+    // ep1 = HID IN (reports from controller to host)
+    // ep2 = HID OUT (output reports from host to controller)
+    ep_hid_in_fd = open("/dev/ffs/ep1", O_RDWR | O_NONBLOCK);
     if (ep_hid_in_fd < 0) {
-        perror("[USB] Failed to open ep3 (HID IN)");
+        perror("[USB] Failed to open ep1 (HID IN)");
         return -1;
     }
 
-    ep_hid_out_fd = open("/dev/ffs/ep4", O_RDWR | O_NONBLOCK);
+    ep_hid_out_fd = open("/dev/ffs/ep2", O_RDWR | O_NONBLOCK);
     if (ep_hid_out_fd < 0) {
-        perror("[USB] Failed to open ep4 (HID OUT)");
+        perror("[USB] Failed to open ep2 (HID OUT)");
         return -1;
     }
-
 
     printf("[USB] Binding gadget to dummy UDC...\n");
     if (system("echo dummy_udc.0 > /sys/kernel/config/usb_gadget/dualsense/UDC") != 0) {
@@ -214,8 +247,6 @@ int usb_init() {
 }
 
 void usb_deinit() {
-    if (ep_audio_out_fd >= 0) close(ep_audio_out_fd);
-    if (ep_audio_in_fd >= 0) close(ep_audio_in_fd);
     if (ep_hid_in_fd >= 0) close(ep_hid_in_fd);
     if (ep_hid_out_fd >= 0) close(ep_hid_out_fd);
     if (ep0_fd >= 0) close(ep0_fd);

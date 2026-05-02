@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 # The opus library
 pkg_check_modules(OPUS REQUIRED opus)
 pkg_check_modules(BLUEZ REQUIRED bluez)
+pkg_check_modules(ALSA REQUIRED alsa)
 
 # Audio resampler include
 include_directories(lib/WDL/WDL)
@@ -28,10 +29,12 @@ target_include_directories(dualsense_bridge PRIVATE
     src
     ${OPUS_INCLUDE_DIRS}
     ${BLUEZ_INCLUDE_DIRS}
+    ${ALSA_INCLUDE_DIRS}
 )
 
 target_link_libraries(dualsense_bridge PRIVATE
     Threads::Threads
     ${OPUS_LIBRARIES}
     ${BLUEZ_LIBRARIES}
+    ${ALSA_LIBRARIES}
 )

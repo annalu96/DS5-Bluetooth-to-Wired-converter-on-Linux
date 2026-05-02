@@ -68,7 +68,7 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 }
 
 int main() {
-    printf("Starting Pico2W DualSense Bridge (Linux Daemon Phase 4)\n");
+    printf("Starting Pico2W DualSense Bridge (Linux Daemon Phase 5)\n");
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -86,16 +86,21 @@ int main() {
 
     bt_register_data_callback(on_bt_data);
 
-    audio_init();
-
+    // Initialize USB gadget (HID via FunctionFS)
+    // This must happen before audio_init because the UDC binding
+    // triggers the creation of the UAC1 ALSA card
     if (usb_init() < 0) {
         printf("Failed to initialize USB FunctionFS. Exiting.\n");
         return 1;
     }
 
+    // Initialize audio (ALSA capture from f_uac1 + Opus encoding)
+    // The ALSA thread will auto-retry connecting to the UAC1 device
+    audio_init();
+
     struct epoll_event ev;
 
-    // Add USB EP0 to epoll
+    // Add USB EP0 to epoll (for HID control requests)
     if (ep0_fd != -1) {
         ev.events = EPOLLIN;
         ev.data.fd = ep0_fd;
@@ -105,7 +110,7 @@ int main() {
         }
     }
 
-    // Add USB EP2 (OUT) to epoll
+    // Add USB HID OUT endpoint to epoll (receives rumble/LED commands from host)
     if (ep_hid_out_fd != -1) {
         ev.events = EPOLLIN;
         ev.data.fd = ep_hid_out_fd;
@@ -115,15 +120,8 @@ int main() {
         }
     }
 
-    // Add USB EP1 (Audio OUT) to epoll
-    if (ep_audio_out_fd != -1) {
-        ev.events = EPOLLIN;
-        ev.data.fd = ep_audio_out_fd;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_audio_out_fd, &ev) == -1) {
-            perror("epoll_ctl: ep_audio_out_fd");
-            return 1;
-        }
-    }
+    // NOTE: Audio is no longer monitored via epoll here.
+    // The ALSA capture is handled in its own thread in audio.cpp.
 
     struct epoll_event events[MAX_EVENTS];
 
@@ -151,19 +149,6 @@ int main() {
             else if (fd == ep0_fd && (events[n].events & EPOLLIN)) {
                 usb_handle_ep0();
             }
-            else if (fd == ep_audio_out_fd && (events[n].events & EPOLLIN)) {
-                int16_t buf[196];
-                while (true) {
-                    int ret = read(ep_audio_out_fd, buf, sizeof(buf));
-                    if (ret > 0) {
-                        audio_receive_pcm(buf, ret);
-                    } else if (ret == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                        break;
-                    } else {
-                        break;
-                    }
-                }
-            }
             else if (fd == ep_hid_out_fd && (events[n].events & EPOLLIN)) {
                 // USB OUT endpoint received data (from Steam/Proton)
                 uint8_t buf[64];
@@ -181,12 +166,6 @@ int main() {
                             reportSeqCounter = 0;
                         }
                         outputData[3] = 0x10; // Flags? Usually 0x10 or 0x00
-                        // The `ret` from USB EP2 should be 64 bytes (1 byte ID `0x02` + 63 bytes payload).
-                        // We copy `ret - 1` (63) bytes to `outputData + 4`.
-                        // Then we calculate CRC for the remaining 4 bytes, so total size 1+1+1+1+63+4 = 71 bytes?
-                        // Wait, old_main.cpp used `sizeof(outputData)` which is 78 bytes.
-                        // The 78 bytes total length is: 0xA2, 0x31, seq, 0x10, then 70 bytes of payload (which includes padding) and 4 CRC.
-                        // Let's copy the payload and calculate the CRC on the whole 77 bytes (index 1 to 77).
                         memcpy(outputData + 4, buf + 1, ret - 1);
 
                         fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);

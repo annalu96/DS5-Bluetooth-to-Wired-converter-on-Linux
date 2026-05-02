@@ -1,8 +1,3 @@
-//
-// Created by awalol on 2026/3/5.
-// Refactored for Linux (Fase 2)
-//
-
 #ifndef DS5_BRIDGE_AUDIO_H
 #define DS5_BRIDGE_AUDIO_H
 
@@ -10,7 +5,10 @@
 
 void audio_init();
 void audio_deinit();
+
+// PCM data is now read from the ALSA device created by f_uac1,
+// managed internally by the audio thread. No external call needed.
+
 void set_headset(bool state);
-void audio_receive_pcm(const int16_t* raw, uint32_t bytes_read);
 
 #endif //DS5_BRIDGE_AUDIO_H
