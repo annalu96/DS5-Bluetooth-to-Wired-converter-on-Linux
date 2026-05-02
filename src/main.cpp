@@ -25,6 +25,29 @@ void signal_handler(int signum) {
     daemon_running = false;
 }
 
+// Process HID OUT data from host (rumble, LEDs, etc.)
+static void process_hid_out() {
+    if (ep_hid_out_fd < 0) return;
+    uint8_t buf[64];
+    int ret = read(ep_hid_out_fd, buf, sizeof(buf));
+    if (ret > 0 && buf[0] == 0x02) {
+        uint8_t outputData[78];
+        memset(outputData, 0, sizeof(outputData));
+
+        outputData[0] = 0xA2; // HID DATA
+        outputData[1] = 0x31; // DualSense Output Report ID
+        outputData[2] = reportSeqCounter << 4;
+        if (++reportSeqCounter == 16) {
+            reportSeqCounter = 0;
+        }
+        outputData[3] = 0x10;
+        memcpy(outputData + 4, buf + 1, ret - 1);
+
+        fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+        bt_write(INTERRUPT, outputData, sizeof(outputData));
+    }
+}
+
 // Callback when Bluetooth receives data
 void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     if (channel == CONTROL) {
@@ -110,13 +133,18 @@ int main() {
         }
     }
 
-    // Add USB HID OUT endpoint to epoll (receives rumble/LED commands from host)
+    // Try to add USB HID OUT endpoint to epoll.
+    // FunctionFS endpoint files may not support epoll on some kernels,
+    // in which case we fall back to manual non-blocking reads.
+    bool hid_out_in_epoll = false;
     if (ep_hid_out_fd != -1) {
         ev.events = EPOLLIN;
         ev.data.fd = ep_hid_out_fd;
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_hid_out_fd, &ev) == -1) {
-            perror("epoll_ctl: ep_hid_out_fd");
-            return 1;
+            printf("[USB] ep_hid_out_fd does not support epoll (errno=%d: %s), using manual polling.\n",
+                   errno, strerror(errno));
+        } else {
+            hid_out_in_epoll = true;
         }
     }
 
@@ -127,7 +155,9 @@ int main() {
 
     printf("Entering main event loop...\n");
     while (daemon_running) {
-        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        // Use a short timeout so we can poll ep_hid_out_fd if it's not in epoll
+        int timeout_ms = hid_out_in_epoll ? -1 : 4; // 4ms ≈ HID polling interval
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, timeout_ms);
         if (nfds == -1) {
             if (errno == EINTR) {
                 continue;
@@ -150,30 +180,13 @@ int main() {
                 usb_handle_ep0();
             }
             else if (fd == ep_hid_out_fd && (events[n].events & EPOLLIN)) {
-                // USB OUT endpoint received data (from Steam/Proton)
-                uint8_t buf[64];
-                int ret = read(ep_hid_out_fd, buf, sizeof(buf));
-                if (ret > 0) {
-                    // Check if it's a SET_REPORT for rumble/triggers (Report ID 0x02)
-                    if (buf[0] == 0x02) {
-                        uint8_t outputData[78];
-                        memset(outputData, 0, sizeof(outputData));
-
-                        outputData[0] = 0xA2; // HID DATA
-                        outputData[1] = 0x31; // DualSense Output Report ID
-                        outputData[2] = reportSeqCounter << 4;
-                        if (++reportSeqCounter == 16) {
-                            reportSeqCounter = 0;
-                        }
-                        outputData[3] = 0x10; // Flags? Usually 0x10 or 0x00
-                        memcpy(outputData + 4, buf + 1, ret - 1);
-
-                        fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
-
-                        bt_write(INTERRUPT, outputData, sizeof(outputData));
-                    }
-                }
+                process_hid_out();
             }
+        }
+
+        // Manual polling fallback: try non-blocking read if epoll doesn't support it
+        if (!hid_out_in_epoll) {
+            process_hid_out();
         }
     }
 

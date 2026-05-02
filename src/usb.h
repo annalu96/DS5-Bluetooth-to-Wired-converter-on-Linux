@@ -9,6 +9,7 @@ extern float volume[2]; // 0: SPEAKER(0x02) 1: MIC(0x05)
 extern int ep0_fd;
 extern int ep_hid_in_fd;
 extern int ep_hid_out_fd;
+extern bool usb_gadget_bound;
 
 int usb_init();
 void usb_deinit();

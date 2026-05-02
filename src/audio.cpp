@@ -236,6 +236,12 @@ static void process_pcm_data(const int16_t* raw, uint32_t frames) {
 static void alsa_capture_entry() {
     printf("[Audio] ALSA capture thread started.\n");
     
+    // If UDC binding failed, audio will never work
+    if (!usb_gadget_bound) {
+        printf("[Audio] UDC not bound — audio capture disabled.\n");
+        return;
+    }
+    
     // Wait a bit for the gadget to be fully bound before trying to open ALSA
     // The UAC1 ALSA card is only created after the gadget is bound to the UDC
     int retries = 0;

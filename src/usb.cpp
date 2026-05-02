@@ -25,6 +25,7 @@ float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 int ep0_fd = -1;
 int ep_hid_in_fd = -1;
 int ep_hid_out_fd = -1;
+bool usb_gadget_bound = false;
 
 extern std::map<uint8_t, std::vector<uint8_t>> feature_data;
 
@@ -186,11 +187,31 @@ struct {
     },
 };
 
+static bool try_bind_udc() {
+    int ret = system("echo dummy_udc.0 > /sys/kernel/config/usb_gadget/dualsense/UDC 2>/dev/null");
+    if (ret != 0) return false;
+
+    // Verify binding actually took effect
+    FILE *f = fopen("/sys/class/udc/dummy_udc.0/state", "r");
+    if (!f) return false;
+    char state[64] = {0};
+    if (fgets(state, sizeof(state), f)) {
+        fclose(f);
+        // After binding, state should not be "not attached"
+        if (strstr(state, "not attached") == NULL) {
+            return true;
+        }
+    } else {
+        fclose(f);
+    }
+    return false;
+}
+
 int usb_init() {
     printf("[USB] Running setup_gadget.sh...\n");
     if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
         printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
-        // return -1;
+        return -1;
     }
 
     // Patch HID report descriptor length into the descriptors
@@ -236,23 +257,44 @@ int usb_init() {
         return -1;
     }
 
+    // Give the kernel a moment to register the FFS function
+    // after all endpoints have been opened
+    usleep(100000); // 100ms
+
+    // Attempt UDC binding with retries
     printf("[USB] Binding gadget to dummy UDC...\n");
-    if (system("echo dummy_udc.0 > /sys/kernel/config/usb_gadget/dualsense/UDC") != 0) {
-        printf("[USB] Failed to bind UDC.\n");
-    } else {
-        printf("[USB] Gadget successfully bound.\n");
+    usb_gadget_bound = false;
+    for (int attempt = 1; attempt <= 5; attempt++) {
+        if (try_bind_udc()) {
+            usb_gadget_bound = true;
+            printf("[USB] Gadget successfully bound to UDC (attempt %d).\n", attempt);
+            break;
+        }
+        printf("[USB] UDC bind attempt %d/5 failed, retrying in 500ms...\n", attempt);
+        usleep(500000); // 500ms
+    }
+
+    if (!usb_gadget_bound) {
+        printf("[USB] ERROR: Failed to bind UDC after 5 attempts.\n");
+        printf("[USB] HID will not work. Audio will not be available.\n");
+        printf("[USB] Try running: sudo ./teardown_gadget.sh && sudo ./setup_gadget.sh\n");
+        return -1;
     }
 
     return 0;
 }
 
 void usb_deinit() {
-    if (ep_hid_in_fd >= 0) close(ep_hid_in_fd);
-    if (ep_hid_out_fd >= 0) close(ep_hid_out_fd);
-    if (ep0_fd >= 0) close(ep0_fd);
+    if (ep_hid_in_fd >= 0) { close(ep_hid_in_fd); ep_hid_in_fd = -1; }
+    if (ep_hid_out_fd >= 0) { close(ep_hid_out_fd); ep_hid_out_fd = -1; }
+    if (ep0_fd >= 0) { close(ep0_fd); ep0_fd = -1; }
 
-    system("echo \"\" > /sys/kernel/config/usb_gadget/dualsense/UDC 2>/dev/null");
-    system("umount /dev/ffs 2>/dev/null");
+    usb_gadget_bound = false;
+
+    // Use teardown script for proper cleanup
+    if (system("./teardown_gadget.sh 2>/dev/null") != 0) {
+        system("../teardown_gadget.sh 2>/dev/null");
+    }
 }
 
 #ifndef HID_REQ_GET_REPORT
