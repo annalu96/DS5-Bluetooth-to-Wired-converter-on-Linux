@@ -16,5 +16,7 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len);
 void bt_register_data_callback(bt_data_callback_t callback);
 void bt_process_epoll_event(int fd);
 bool bt_is_fd_mine(int fd);
+void bt_reload_hid_playstation();
+bool bt_is_connected();
 
 #endif //DS5_BRIDGE_BT_H

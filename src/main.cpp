@@ -102,6 +102,14 @@ int main() {
         return 1;
     }
 
+    // ================================================================
+    // Phase 1: Initialize Bluetooth and wait for DualSense connection
+    // ================================================================
+    // bt_init() unloads hidp + hid_playstation to prevent the kernel
+    // from intercepting BT HID connections on PSM 17/19.
+    // We must wait for the DualSense to connect via BT BEFORE setting
+    // up the USB gadget, because hid_playstation needs to be reloaded
+    // for the gadget to be recognized as a DualSense.
     if (bt_init(epoll_fd) == -1) {
         printf("Failed to initialize Bluetooth. Exiting.\n");
         return 1;
@@ -109,11 +117,49 @@ int main() {
 
     bt_register_data_callback(on_bt_data);
 
-    // Initialize USB gadget (HID via FunctionFS)
-    // This must happen before audio_init because the UDC binding
-    // triggers the creation of the UAC1 ALSA card
+    printf("[Main] Waiting for DualSense Bluetooth connection...\n");
+    printf("[Main] Press the PS button on your DualSense controller.\n");
+
+    // Block until both L2CAP channels (control + interrupt) are connected
+    struct epoll_event wait_events[MAX_EVENTS];
+    while (daemon_running && !bt_is_connected()) {
+        int nfds = epoll_wait(epoll_fd, wait_events, MAX_EVENTS, 1000);
+        if (nfds == -1) {
+            if (errno == EINTR) continue;
+            perror("epoll_wait (BT wait)");
+            break;
+        }
+        for (int n = 0; n < nfds; ++n) {
+            if (bt_is_fd_mine(wait_events[n].data.fd) && (wait_events[n].events & EPOLLIN)) {
+                bt_process_epoll_event(wait_events[n].data.fd);
+            }
+        }
+    }
+
+    if (!daemon_running || !bt_is_connected()) {
+        printf("[Main] Aborted or BT connection failed. Cleaning up.\n");
+        bt_deinit();
+        close(epoll_fd);
+        return 1;
+    }
+
+    printf("[Main] DualSense connected via Bluetooth!\n");
+
+    // ================================================================
+    // Phase 2: Reload hid_playstation for USB gadget recognition
+    // ================================================================
+    // The USB gadget uses Sony VID/PID (054c:0ce6), so hid_playstation
+    // must be loaded for the host to recognize it as a DualSense.
+    // We keep hidp UNLOADED to prevent BT HID interception.
+    bt_reload_hid_playstation();
+
+    // ================================================================
+    // Phase 3: Initialize USB gadget (HID via FunctionFS)
+    // ================================================================
     if (usb_init() < 0) {
         printf("Failed to initialize USB FunctionFS. Exiting.\n");
+        bt_deinit();
+        close(epoll_fd);
         return 1;
     }
 
