@@ -221,6 +221,7 @@ void usb_deinit() {
     if (ep0_fd >= 0) close(ep0_fd);
 
     system("echo \"\" > /sys/kernel/config/usb_gadget/dualsense/UDC 2>/dev/null");
+    system("umount /dev/ffs 2>/dev/null");
 }
 
 #ifndef HID_REQ_GET_REPORT

@@ -16,6 +16,9 @@ if [ -e "$GADGET_DIR/UDC" ] && [ -n "$(cat "$GADGET_DIR/UDC")" ]; then
     echo "" > "$GADGET_DIR/UDC"
 fi
 
+# Unmount if already mounted (MUST BE DONE BEFORE DELETING FUNCTION)
+umount "$MOUNT_DIR" 2>/dev/null || true
+
 # Clean up existing gadget if necessary
 if [ -d "$GADGET_DIR" ]; then
     rm -f "$GADGET_DIR/configs/c.1/$FUNC_NAME"
@@ -55,9 +58,6 @@ ln -s "$GADGET_DIR/functions/$FUNC_NAME" "$GADGET_DIR/configs/c.1"
 
 # Prepare mount directory
 mkdir -p "$MOUNT_DIR"
-
-# Unmount if already mounted
-umount "$MOUNT_DIR" 2>/dev/null || true
 
 # Mount FunctionFS
 mount -t functionfs ds "$MOUNT_DIR"
