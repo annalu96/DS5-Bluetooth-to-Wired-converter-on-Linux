@@ -91,7 +91,7 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 }
 
 int main() {
-    printf("Starting Pico2W DualSense Bridge (Linux Daemon Phase 5)\n");
+    printf("Starting DS5-Bluetooth-to-Wired-converter-on-Linux...\n");
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -117,8 +117,7 @@ int main() {
 
     bt_register_data_callback(on_bt_data);
 
-    printf("[Main] Waiting for DualSense Bluetooth connection...\n");
-    printf("[Main] Press the PS button on your DualSense controller.\n");
+    printf("[Main] Aguardando reconexão do DualSense via L2CAP...\n");
 
     // Block until both L2CAP channels (control + interrupt) are connected
     struct epoll_event wait_events[MAX_EVENTS];
