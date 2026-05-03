@@ -31,10 +31,16 @@ static void process_hid_out() {
     uint8_t buf[64];
     int ret = read(ep_hid_out_fd, buf, sizeof(buf));
     if (ret > 0 && buf[0] == 0x02) {
+        // USB output report (ID 0x02) from host → translate to BT output report (0x31)
+        //
+        // For hidraw write, we send: [0x31] [seq] [tag] [data...]
+        // No 0xA2 prefix — bt_write() handles stripping it if present,
+        // but we build it in the old format for compatibility with audio.cpp
+        // which also calls bt_write(INTERRUPT, ...) with the 0xA2 prefix.
         uint8_t outputData[78];
         memset(outputData, 0, sizeof(outputData));
 
-        outputData[0] = 0xA2; // HID DATA
+        outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
         outputData[1] = 0x31; // DualSense Output Report ID
         outputData[2] = reportSeqCounter << 4;
         if (++reportSeqCounter == 16) {
@@ -48,9 +54,12 @@ static void process_hid_out() {
     }
 }
 
-// Callback when Bluetooth receives data
+// Callback when Bluetooth/hidraw receives data
 void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     if (channel == CONTROL) {
+        // Feature report responses — now handled via ioctl in usb.cpp
+        // This path is kept for compatibility but shouldn't be called
+        // in the hidraw architecture.
         if (len > 1 && data[0] == 0xA3) {
             uint8_t report_id = data[1];
             feature_data[report_id].assign(data + 1, data + len);
@@ -62,11 +71,11 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     // Ignore control channel for now in main mapping
     if (channel != INTERRUPT) return;
 
-    if (len > 1 && data[0] == 0xA1) { // HID DATA header
-        if (data[1] == 0x31 && ep_hid_in_fd >= 0) { // 0x31 is DualSense State report
+    if (len > 1 && data[0] == 0xA1) { // HID DATA header (added by bt.cpp for compatibility)
+        if (data[1] == 0x31 && ep_hid_in_fd >= 0) { // 0x31 is DualSense BT State report
             // We need to map 0x31 (BT) -> 0x01 (USB)
             // BT 0x31: [A1] [31] [seq] [buttons/sticks...]
-            // USB 0x01: [01] [buttons/sticks...] (64 bytes total, we write 63 payload)
+            // USB 0x01: [01] [buttons/sticks...] (64 bytes total)
 
             uint8_t usb_report[64];
             memset(usb_report, 0, sizeof(usb_report));
@@ -74,11 +83,6 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
             if (len >= 65) {
                 // Skip A1, 31, seq (data[0], data[1], data[2])
                 // Copy 63 bytes (buttons/sticks/sensors)
-                memcpy(usb_report, data + 3, 63); // Notice we don't include Report ID in the ffs write directly
-
-                // Write 63 bytes of report data to ep1 (USB IN)
-                // wait, the USB gadget expects the payload only, no report ID if using ffs IN endpoint like this?
-                // Actually, the descriptor has Report ID 0x01. So the first byte must be the report ID!
 
                 uint8_t final_usb_report[64];
                 final_usb_report[0] = 0x01;
@@ -92,6 +96,7 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 
 int main() {
     printf("Starting DS5-Bluetooth-to-Wired-converter-on-Linux...\n");
+    printf("Modo: hidraw → USB Gadget (FunctionFS)\n\n");
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -103,58 +108,39 @@ int main() {
     }
 
     // ================================================================
-    // Phase 1: Initialize Bluetooth and wait for DualSense connection
+    // Phase 1: Detect and open DualSense hidraw device
     // ================================================================
-    // bt_init() unloads hidp + hid_playstation to prevent the kernel
-    // from intercepting BT HID connections on PSM 17/19.
-    // We must wait for the DualSense to connect via BT BEFORE setting
-    // up the USB gadget, because hid_playstation needs to be reloaded
-    // for the gadget to be recognized as a DualSense.
-    if (bt_init(epoll_fd) == -1) {
-        printf("Failed to initialize Bluetooth. Exiting.\n");
-        return 1;
-    }
+    // The DualSense must already be connected via Bluetooth (managed by
+    // bluetoothd). We simply find and open its /dev/hidraw* node.
+    // No modules are unloaded, no services are stopped.
 
-    bt_register_data_callback(on_bt_data);
+    printf("[Main] 📡 Aguardando DualSense conectado via Bluetooth...\n");
+    printf("[Main] 👉 Conecte o controle normalmente (bluetoothctl ou GUI).\n\n");
 
-    printf("[Main] Aguardando reconexão do DualSense via L2CAP...\n");
-
-    // Block until both L2CAP channels (control + interrupt) are connected
-    struct epoll_event wait_events[MAX_EVENTS];
-    while (daemon_running && !bt_is_connected()) {
-        int nfds = epoll_wait(epoll_fd, wait_events, MAX_EVENTS, 1000);
-        if (nfds == -1) {
-            if (errno == EINTR) continue;
-            perror("epoll_wait (BT wait)");
+    // Retry finding the hidraw device — the user may connect after starting
+    while (daemon_running) {
+        if (bt_init(epoll_fd) == 0) {
             break;
         }
-        for (int n = 0; n < nfds; ++n) {
-            if (bt_is_fd_mine(wait_events[n].data.fd) && (wait_events[n].events & EPOLLIN)) {
-                bt_process_epoll_event(wait_events[n].data.fd);
-            }
-        }
+        printf("[Main] Tentando novamente em 3 segundos...\n\n");
+        sleep(3);
     }
 
     if (!daemon_running || !bt_is_connected()) {
-        printf("[Main] Aborted or BT connection failed. Cleaning up.\n");
-        bt_deinit();
+        printf("[Main] Abortado. Encerrando.\n");
         close(epoll_fd);
         return 1;
     }
 
-    printf("[Main] DualSense connected via Bluetooth!\n");
+    bt_register_data_callback(on_bt_data);
+    printf("[Main] ✅ DualSense conectado via hidraw!\n\n");
 
     // ================================================================
-    // Phase 2: Reload hid_playstation for USB gadget recognition
+    // Phase 2: Initialize USB gadget (HID via FunctionFS)
     // ================================================================
-    // The USB gadget uses Sony VID/PID (054c:0ce6), so hid_playstation
-    // must be loaded for the host to recognize it as a DualSense.
-    // We keep hidp UNLOADED to prevent BT HID interception.
-    bt_reload_hid_playstation();
+    // hid_playstation is already loaded (it's what created the hidraw
+    // node in the first place), so no need to reload it.
 
-    // ================================================================
-    // Phase 3: Initialize USB gadget (HID via FunctionFS)
-    // ================================================================
     if (usb_init() < 0) {
         printf("Failed to initialize USB FunctionFS. Exiting.\n");
         bt_deinit();
@@ -163,7 +149,6 @@ int main() {
     }
 
     // Initialize audio (ALSA capture from f_uac1 + Opus encoding)
-    // Only available when UAC1 is enabled (requires UDC with isochronous support)
     if (uac1_enabled) {
         audio_init();
     } else {
@@ -183,8 +168,6 @@ int main() {
     }
 
     // Try to add USB HID OUT endpoint to epoll.
-    // FunctionFS endpoint files may not support epoll on some kernels,
-    // in which case we fall back to manual non-blocking reads.
     bool hid_out_in_epoll = false;
     if (ep_hid_out_fd != -1) {
         ev.events = EPOLLIN;
@@ -197,14 +180,10 @@ int main() {
         }
     }
 
-    // NOTE: Audio is no longer monitored via epoll here.
-    // The ALSA capture is handled in its own thread in audio.cpp.
-
     struct epoll_event events[MAX_EVENTS];
 
     printf("Entering main event loop...\n");
     while (daemon_running) {
-        // Use a short timeout so we can poll ep_hid_out_fd if it's not in epoll
         int timeout_ms = hid_out_in_epoll ? -1 : 4; // 4ms ≈ HID polling interval
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, timeout_ms);
         if (nfds == -1) {
@@ -217,7 +196,17 @@ int main() {
 
         for (int n = 0; n < nfds; ++n) {
             if (events[n].events & (EPOLLERR | EPOLLHUP)) {
-                // Ignore for now
+                // Check if it's the hidraw — controller may have disconnected
+                if (bt_is_fd_mine(events[n].data.fd)) {
+                    printf("[Main] ⚠️ Hidraw error/hangup — controle desconectou.\n");
+                    bt_process_epoll_event(events[n].data.fd);
+                    if (!bt_is_connected()) {
+                        printf("[Main] 🔄 Controle perdido. Tentando reconectar...\n");
+                        // TODO: implement reconnection loop
+                        daemon_running = false;
+                    }
+                    continue;
+                }
             }
 
             int fd = events[n].data.fd;
@@ -233,7 +222,7 @@ int main() {
             }
         }
 
-        // Manual polling fallback: try non-blocking read if epoll doesn't support it
+        // Manual polling fallback for HID OUT
         if (!hid_out_in_epoll) {
             process_hid_out();
         }

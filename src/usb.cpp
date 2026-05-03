@@ -17,7 +17,8 @@
 #include <map>
 #include <vector>
 #include "bt.h"
-#include "utils.h"
+#include <poll.h>
+#include <chrono>
 
 uint8_t mute[2] = {0}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
@@ -28,10 +29,6 @@ int ep_hid_out_fd = -1;
 bool usb_gadget_bound = false;
 bool uac1_enabled = false;
 
-extern std::map<uint8_t, std::vector<uint8_t>> feature_data;
-
-struct usb_ctrlrequest current_setup;
-bool feature_pending = false;
 
 // HID descriptor structure for FunctionFS
 struct usb_hid_descriptor {
@@ -308,6 +305,34 @@ int usb_init() {
         return -1;
     }
 
+    // ─── Critical: drain EP0 events during enumeration ───
+    // After UDC bind, the host-side usbhid driver probes immediately and
+    // sends SETUP requests (GET_REPORT_DESCRIPTOR, SET_IDLE, etc.) with a
+    // ~5s timeout.  main()'s epoll loop hasn't started yet, so we must
+    // service EP0 here to avoid -ETIMEDOUT (-110) on the host side.
+    printf("[USB] Servicing EP0 during host enumeration...\n");
+    {
+        struct pollfd pfd;
+        pfd.fd = ep0_fd;
+        pfd.events = POLLIN;
+
+        // Poll for up to 5 seconds, handling events as they arrive
+        auto start = std::chrono::steady_clock::now();
+        while (true) {
+            auto elapsed = std::chrono::steady_clock::now() - start;
+            int remaining_ms = 5000 - (int)std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+            if (remaining_ms <= 0) break;
+
+            int pr = poll(&pfd, 1, remaining_ms);
+            if (pr <= 0) break; // timeout or error — enumeration done or no more events
+
+            if (pfd.revents & POLLIN) {
+                usb_handle_ep0();
+            }
+        }
+        printf("[USB] EP0 enumeration servicing complete.\n");
+    }
+
     return 0;
 }
 
@@ -426,27 +451,20 @@ void usb_handle_ep0() {
                  printf("[USB] GET_REPORT type=%u id=0x%02x len=%u\n", report_type, report_id, setup.wLength);
 
                  if (report_type == 3) { // Feature Report
-                     if (feature_data.find(report_id) != feature_data.end()) {
-                         // We have it cached
-                         std::vector<uint8_t> cached_data = feature_data[report_id];
-                         uint8_t buf[256];
-                         memset(buf, 0, sizeof(buf));
-                         size_t copy_len = std::min((size_t)setup.wLength, cached_data.size() - 1);
-                         memcpy(buf, cached_data.data() + 1, copy_len);
-
-                         if (setup.wLength <= sizeof(buf)) {
-                             write(ep0_fd, buf, setup.wLength);
-                         } else {
-                             write(ep0_fd, buf, sizeof(buf));
-                         }
+                     // Use hidraw ioctl to get the feature report synchronously
+                     uint8_t buf[256];
+                     memset(buf, 0, sizeof(buf));
+                     int fr_ret = bt_get_feature_report(report_id, buf, sizeof(buf));
+                     if (fr_ret > 0) {
+                         // hidraw returns [report_id][data...], USB host expects [data...] (no report_id prefix)
+                         size_t send_len = std::min((size_t)setup.wLength, (size_t)(fr_ret - 1));
+                         write(ep0_fd, buf + 1, send_len);
                      } else {
-                         // Request from BT and defer EP0 write
-                         feature_pending = true;
-                         current_setup = setup;
-
-                         // Trigger BT read
-                         uint8_t get_feature[2] = {0x43, report_id};
-                         bt_write(CONTROL, get_feature, sizeof(get_feature));
+                         // Failed to get from controller — send zeros
+                         printf("[USB] ⚠️ Feature report 0x%02x not available from controller\n", report_id);
+                         memset(buf, 0, sizeof(buf));
+                         buf[0] = report_id;
+                         write(ep0_fd, buf, setup.wLength);
                      }
                  } else {
                      uint8_t buf[64];
@@ -481,17 +499,9 @@ void usb_handle_ep0() {
                          printf("[USB] SET_REPORT type=%u id=0x%02x len=%d\n", report_type, report_id, ret);
 
                          if (report_type == 3) { // Feature Report
-                             uint8_t final_buf[256];
-                             final_buf[0] = 0x53; // 0x53 is SET_REPORT (Feature)
-                             final_buf[1] = report_id;
-                             memcpy(final_buf + 2, buf + 1, ret - 1);
-                             // The total payload is `ret` bytes (including report ID at buf[0]).
-                             // We are sending `0x53` (1 byte) + `report_id` (1 byte) + `buf + 1` (ret - 1 bytes) + `CRC` (4 bytes).
-                             // So total size is `1 + 1 + ret - 1 + 4` = `ret + 5`.
-                             // However, the checksum function expects data starting after `0x53`.
-                             // We pass `final_buf + 1` to `fill_feature_report_checksum`, and its length should be `ret + 4` (ID + payload + CRC)
-                             fill_feature_report_checksum(final_buf + 1, ret + 4);
-                             bt_write(CONTROL, final_buf, ret + 5);
+                             // Use hidraw ioctl to set the feature report directly
+                             // hidraw expects: [report_id][data...]
+                             bt_set_feature_report(buf, ret);
                          }
                      }
                  } else if (setup.wLength > 0) {
@@ -502,15 +512,17 @@ void usb_handle_ep0() {
                  // Note: FunctionFS handles status stage automatically for OUT requests
             } else if (setup.bRequest == HID_REQ_SET_IDLE) {
                 printf("[USB] SET_IDLE value=0x%04x\n", setup.wValue);
-                // Acknowledge — FunctionFS handles status stage for OUT with wLength==0
-                // Just need to not stall
+                // Zero-length OUT: write 0 bytes to ACK the status stage.
+                // read(ep0,NULL,0) would STALL the request instead.
                 if (setup.wLength == 0) {
-                    read(ep0_fd, NULL, 0); // Acknowledge status stage
+                    if (write(ep0_fd, NULL, 0) < 0)
+                        perror("[USB] SET_IDLE ack write");
                 }
             } else if (setup.bRequest == HID_REQ_SET_PROTOCOL) {
                 printf("[USB] SET_PROTOCOL value=0x%04x\n", setup.wValue);
                 if (setup.wLength == 0) {
-                    read(ep0_fd, NULL, 0); // Acknowledge status stage
+                    if (write(ep0_fd, NULL, 0) < 0)
+                        perror("[USB] SET_PROTOCOL ack write");
                 }
             } else {
                 printf("[USB] STALL: Class OUT request bRequest=0x%02x\n", setup.bRequest);
@@ -526,27 +538,7 @@ void usb_handle_ep0() {
 }
 
 void usb_process_pending_feature(uint8_t report_id) {
-    if (feature_pending && (current_setup.wValue & 0xFF) == report_id) {
-        std::vector<uint8_t> cached_data;
-        if (feature_data.find(report_id) != feature_data.end()) {
-            cached_data = feature_data[report_id];
-        }
-
-        uint8_t buf[256];
-        memset(buf, 0, sizeof(buf));
-
-        if (!cached_data.empty()) {
-            size_t copy_len = std::min((size_t)current_setup.wLength, cached_data.size() - 1);
-            memcpy(buf, cached_data.data() + 1, copy_len);
-        } else {
-            buf[0] = report_id;
-        }
-
-        if (current_setup.wLength <= sizeof(buf)) {
-            write(ep0_fd, buf, current_setup.wLength);
-        } else {
-            write(ep0_fd, buf, sizeof(buf));
-        }
-        feature_pending = false;
-    }
+    // No-op: feature reports are now handled synchronously via hidraw ioctl.
+    // This function is kept for API compatibility but does nothing.
+    (void)report_id;
 }
