@@ -456,9 +456,15 @@ void usb_handle_ep0() {
                      memset(buf, 0, sizeof(buf));
                      int fr_ret = bt_get_feature_report(report_id, buf, sizeof(buf));
                      if (fr_ret > 0) {
-                         // hidraw returns [report_id][data...], USB host expects [data...] (no report_id prefix)
-                         size_t send_len = std::min((size_t)setup.wLength, (size_t)(fr_ret - 1));
-                         write(ep0_fd, buf + 1, send_len);
+                         if (report_type == 3 && report_id == 0x09 && fr_ret >= 7) {
+                             // Spoof MAC address to prevent kernel -EEXIST (Duplicate device)
+                             // since the BT connection is already using the real MAC.
+                             buf[6] ^= 0x01;
+                         }
+
+                         // Send the full feature report including the report ID prefix
+                         size_t send_len = std::min((size_t)setup.wLength, (size_t)fr_ret);
+                         write(ep0_fd, buf, send_len);
                      } else {
                          // Failed to get from controller — send zeros
                          printf("[USB] ⚠️ Feature report 0x%02x not available from controller\n", report_id);
@@ -512,17 +518,15 @@ void usb_handle_ep0() {
                  // Note: FunctionFS handles status stage automatically for OUT requests
             } else if (setup.bRequest == HID_REQ_SET_IDLE) {
                 printf("[USB] SET_IDLE value=0x%04x\n", setup.wValue);
-                // Zero-length OUT: write 0 bytes to ACK the status stage.
-                // read(ep0,NULL,0) would STALL the request instead.
+                // Acknowledge — FunctionFS handles status stage for OUT with wLength==0
+                // Just need to not stall
                 if (setup.wLength == 0) {
-                    if (write(ep0_fd, NULL, 0) < 0)
-                        perror("[USB] SET_IDLE ack write");
+                    read(ep0_fd, NULL, 0); // Acknowledge status stage
                 }
             } else if (setup.bRequest == HID_REQ_SET_PROTOCOL) {
                 printf("[USB] SET_PROTOCOL value=0x%04x\n", setup.wValue);
                 if (setup.wLength == 0) {
-                    if (write(ep0_fd, NULL, 0) < 0)
-                        perror("[USB] SET_PROTOCOL ack write");
+                    read(ep0_fd, NULL, 0); // Acknowledge status stage
                 }
             } else {
                 printf("[USB] STALL: Class OUT request bRequest=0x%02x\n", setup.bRequest);
