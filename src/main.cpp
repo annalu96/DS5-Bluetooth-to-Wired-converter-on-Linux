@@ -8,6 +8,7 @@
 #include <cstring>
 #include <map>
 #include <vector>
+#include <chrono>
 
 #include "bt.h"
 #include "usb.h"
@@ -88,7 +89,22 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
                 final_usb_report[0] = 0x01;
                 memcpy(final_usb_report + 1, data + 3, 63);
 
-                write(ep_hid_in_fd, final_usb_report, 64);
+                static int debug_counter = 0;
+                if (debug_counter++ % 500 == 0) {
+                    printf("[USB] Forwarding input report: LX=%02x LY=%02x RX=%02x RY=%02x L2=%02x R2=%02x\n",
+                           final_usb_report[1], final_usb_report[2], final_usb_report[3],
+                           final_usb_report[4], final_usb_report[5], final_usb_report[6]);
+                }
+
+                ssize_t wret = write(ep_hid_in_fd, final_usb_report, 64);
+                if (wret < 0 && errno != EAGAIN) {
+                    static int error_count = 0;
+                    if (error_count++ % 100 == 0) {
+                        printf("[USB] ❌ Failed to write to ep_hid_in_fd: %s\n", strerror(errno));
+                    }
+                } else if (wret < 0 && errno == EAGAIN) {
+                    // host is not polling fast enough
+                }
             }
         }
     }

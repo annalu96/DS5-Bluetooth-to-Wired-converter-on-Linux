@@ -75,9 +75,16 @@ rm -f "$UAC1_FLAG" 2>/dev/null || true
 
 # 10. Verify cleanup
 if [ -d "$GADGET_DIR" ]; then
-    echo "[teardown] WARNING: Gadget directory still exists at $GADGET_DIR"
-    echo "[teardown] Contents:"
-    ls -la "$GADGET_DIR/" 2>/dev/null || true
+    echo "[teardown] WARNING: Gadget directory still exists at $GADGET_DIR, waiting for it to be removed..."
+    for i in {1..10}; do
+        rmdir "$GADGET_DIR" 2>/dev/null || true
+        if [ ! -d "$GADGET_DIR" ]; then break; fi
+        sleep 0.2
+    done
+    if [ -d "$GADGET_DIR" ]; then
+        echo "[teardown] ERROR: Gadget directory could not be removed."
+        ls -la "$GADGET_DIR/" 2>/dev/null || true
+    fi
 else
     echo "[teardown] Gadget directory removed successfully."
 fi

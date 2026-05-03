@@ -224,11 +224,11 @@ static bool check_uac1_flag() {
 }
 
 int usb_init() {
-    printf("[USB] Running setup_gadget.sh...\n");
-    if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
-        printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
-        return -1;
-    }
+    printf("[USB] Expecting setup_gadget.sh to have been run already.\n");
+    // if (system("./setup_gadget.sh") != 0 && system("../setup_gadget.sh") != 0) {
+    //     printf("[USB] Failed to run setup_gadget.sh. Make sure you are root and the script is in the current or parent directory.\n");
+    //     return -1;
+    // }
 
     // Check whether setup_gadget.sh enabled UAC1 (depends on UDC capabilities)
     uac1_enabled = check_uac1_flag();
