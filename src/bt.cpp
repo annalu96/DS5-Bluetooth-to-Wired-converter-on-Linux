@@ -25,6 +25,12 @@ static std::vector<int> grabbed_evdev_fds;
 // Path to the hidraw device we opened (e.g. "/dev/hidraw3")
 static std::string hidraw_path;
 
+// The HID device sysfs ID (e.g. "0005:054C:0CE6.0008") used for driver unbind/rebind
+static std::string hid_device_id;
+
+// Whether we successfully unbound the hid-playstation driver
+static bool driver_unbound = false;
+
 void bt_register_data_callback(bt_data_callback_t callback) {
   data_callback = callback;
 }
@@ -224,6 +230,127 @@ static void release_evdev_grabs() {
   grabbed_evdev_fds.clear();
 }
 
+// Unbind the hid-playstation (or hid-generic) driver from the BT DualSense.
+// This removes all evdev input nodes, making the physical BT controller
+// completely invisible to games and applications.
+// The hidraw fd remains functional because it was opened before unbind.
+static void unbind_hid_driver() {
+  if (hidraw_path.empty())
+    return;
+
+  // Extract hidraw name (e.g. "hidraw12" from "/dev/hidraw12")
+  std::string hidraw_name = hidraw_path.substr(5);
+
+  // Read the sysfs device symlink to get the HID device ID
+  // /sys/class/hidraw/hidraw12/device -> ../../0005:054C:0CE6.0008
+  char link_target[512];
+  char sysfs_path[256];
+  snprintf(sysfs_path, sizeof(sysfs_path), "/sys/class/hidraw/%s/device",
+           hidraw_name.c_str());
+
+  ssize_t len = readlink(sysfs_path, link_target, sizeof(link_target) - 1);
+  if (len < 0) {
+    printf("[BT] ⚠️ Não foi possível ler link sysfs para unbind: %s\n",
+           strerror(errno));
+    return;
+  }
+  link_target[len] = '\0';
+
+  // The link target is something like "../../0005:054C:0CE6.0008"
+  // Extract just the last component (the HID device ID)
+  const char *last_slash = strrchr(link_target, '/');
+  if (last_slash) {
+    hid_device_id = last_slash + 1;
+  } else {
+    hid_device_id = link_target;
+  }
+
+  printf("[BT] 🔓 HID device ID: %s\n", hid_device_id.c_str());
+
+  // Read uevent to determine which driver is bound
+  char uevent_path[256];
+  snprintf(uevent_path, sizeof(uevent_path),
+           "/sys/class/hidraw/%s/device/uevent", hidraw_name.c_str());
+  FILE *ue = fopen(uevent_path, "r");
+  std::string bound_driver;
+  if (ue) {
+    char line[256];
+    while (fgets(line, sizeof(line), ue)) {
+      if (strncmp(line, "DRIVER=", 7) == 0) {
+        char *nl = strchr(line + 7, '\n');
+        if (nl)
+          *nl = '\0';
+        bound_driver = line + 7;
+        break;
+      }
+    }
+    fclose(ue);
+  }
+
+  if (bound_driver.empty()) {
+    printf("[BT] ⚠️ Nenhum driver associado ao dispositivo HID.\n");
+    return;
+  }
+
+  printf("[BT] 🔓 Driver associado: %s\n", bound_driver.c_str());
+
+  // Write the HID device ID to the driver's unbind file
+  char unbind_path[256];
+  snprintf(unbind_path, sizeof(unbind_path), "/sys/bus/hid/drivers/%s/unbind",
+           bound_driver.c_str());
+
+  FILE *f = fopen(unbind_path, "w");
+  if (!f) {
+    printf("[BT] ⚠️ Não foi possível abrir %s: %s\n", unbind_path,
+           strerror(errno));
+    printf("[BT]    Verifique se está executando como root.\n");
+    return;
+  }
+
+  if (fprintf(f, "%s", hid_device_id.c_str()) < 0) {
+    printf("[BT] ⚠️ Falha ao escrever em unbind: %s\n", strerror(errno));
+    fclose(f);
+    return;
+  }
+  fclose(f);
+
+  driver_unbound = true;
+  printf("[BT] ✅ Driver '%s' desvinculado do dispositivo %s\n",
+         bound_driver.c_str(), hid_device_id.c_str());
+  printf("[BT]    Os nodes evdev do DualSense BT foram removidos do sistema.\n");
+}
+
+// Rebind the hid-playstation driver on shutdown so the controller
+// works normally after the bridge exits.
+static void rebind_hid_driver() {
+  if (!driver_unbound || hid_device_id.empty())
+    return;
+
+  // Try hid-playstation first, fall back to hid-generic
+  const char *drivers[] = {"playstation", "generic-hid", NULL};
+  for (int i = 0; drivers[i]; i++) {
+    char bind_path[256];
+    snprintf(bind_path, sizeof(bind_path), "/sys/bus/hid/drivers/%s/bind",
+             drivers[i]);
+
+    FILE *f = fopen(bind_path, "w");
+    if (!f)
+      continue;
+
+    if (fprintf(f, "%s", hid_device_id.c_str()) >= 0) {
+      fclose(f);
+      printf("[BT] ✅ Driver '%s' re-vinculado ao dispositivo %s\n", drivers[i],
+             hid_device_id.c_str());
+      driver_unbound = false;
+      return;
+    }
+    fclose(f);
+  }
+
+  printf("[BT] ⚠️ Não foi possível re-vincular o driver HID.\n");
+  printf("[BT]    O controle pode precisar ser reconectado.\n");
+}
+
 static void add_to_epoll(int fd) {
   if (global_epoll_fd == -1 || fd == -1)
     return;
@@ -289,6 +416,10 @@ int bt_init(int epoll_fd) {
   // Grab evdev devices to prevent double input
   grab_evdev_devices();
 
+  // NOTE: We do NOT unbind hid-playstation here. Unbinding the driver
+  // also destroys the hidraw node, which kills our data connection.
+  // EVIOCGRAB is sufficient to suppress input from the real controller.
+
   // Add hidraw to epoll for monitoring incoming HID reports
   add_to_epoll(hidraw_fd);
 
@@ -310,6 +441,7 @@ void bt_deinit() {
   }
 
   hidraw_path.clear();
+  hid_device_id.clear();
   printf("[BT] Bridge hidraw encerrado.\n");
 }
 

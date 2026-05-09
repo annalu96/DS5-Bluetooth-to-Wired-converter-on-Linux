@@ -306,28 +306,45 @@ int usb_init() {
     }
 
     // ─── Critical: drain EP0 events during enumeration ───
-    // After UDC bind, the host-side usbhid driver probes immediately and
-    // sends SETUP requests (GET_REPORT_DESCRIPTOR, SET_IDLE, etc.) with a
-    // ~5s timeout.  main()'s epoll loop hasn't started yet, so we must
-    // service EP0 here to avoid -ETIMEDOUT (-110) on the host side.
-    printf("[USB] Servicing EP0 during host enumeration...\n");
+    // After UDC bind, the host-side hid-playstation driver probes the device.
+    // The probe sequence is:
+    //   1. ENABLE, SET_IDLE, GET_DESCRIPTOR (immediate)
+    //   2. GET_REPORT for feature reports 0x09, 0x20, 0x05 (after HID device creation, ~5-10s)
+    // If we don't answer these in time, the driver probe fails with -ETIMEDOUT (-110).
+    // We service EP0 for up to 15s, exiting early after 2s of silence.
+    printf("[USB] Servicing EP0 during host enumeration (up to 15s)...\n");
     {
         struct pollfd pfd;
         pfd.fd = ep0_fd;
         pfd.events = POLLIN;
 
-        // Poll for up to 5 seconds, handling events as they arrive
         auto start = std::chrono::steady_clock::now();
+        const int max_ms = 15000;    // Total max wait
+        const int idle_ms = 2000;    // Exit after 2s of no events
+        auto last_event = start;
+
         while (true) {
-            auto elapsed = std::chrono::steady_clock::now() - start;
-            int remaining_ms = 5000 - (int)std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-            if (remaining_ms <= 0) break;
+            auto now = std::chrono::steady_clock::now();
+            int total_elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+            int idle_elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(now - last_event).count();
 
-            int pr = poll(&pfd, 1, remaining_ms);
-            if (pr <= 0) break; // timeout or error — enumeration done or no more events
+            if (total_elapsed >= max_ms) {
+                printf("[USB] EP0 servicing: max timeout reached (%dms).\n", total_elapsed);
+                break;
+            }
+            if (idle_elapsed >= idle_ms && total_elapsed > 5000) {
+                // Only allow idle exit after at least 5s (to ensure we've seen the probe)
+                printf("[USB] EP0 servicing: idle timeout after %dms total.\n", total_elapsed);
+                break;
+            }
 
-            if (pfd.revents & POLLIN) {
+            int wait_ms = std::min(max_ms - total_elapsed, idle_ms - idle_elapsed);
+            if (wait_ms <= 0) wait_ms = 100;
+
+            int pr = poll(&pfd, 1, wait_ms);
+            if (pr > 0 && (pfd.revents & POLLIN)) {
                 usb_handle_ep0();
+                last_event = std::chrono::steady_clock::now();
             }
         }
         printf("[USB] EP0 enumeration servicing complete.\n");
@@ -456,15 +473,25 @@ void usb_handle_ep0() {
                      memset(buf, 0, sizeof(buf));
                      int fr_ret = bt_get_feature_report(report_id, buf, sizeof(buf));
                      if (fr_ret > 0) {
-                         if (report_type == 3 && report_id == 0x09 && fr_ret >= 7) {
+                         printf("[USB]    Feature report 0x%02x: got %d bytes from BT, host wants %u bytes\n",
+                                report_id, fr_ret, setup.wLength);
+
+                         if (report_id == 0x09 && fr_ret >= 7) {
                              // Spoof MAC address to prevent kernel -EEXIST (Duplicate device)
                              // since the BT connection is already using the real MAC.
                              buf[6] ^= 0x01;
                          }
 
-                         // Send the full feature report including the report ID prefix
-                         size_t send_len = std::min((size_t)setup.wLength, (size_t)fr_ret);
-                         write(ep0_fd, buf, send_len);
+                         // Always send exactly wLength bytes to the host.
+                         // If BT returned fewer bytes, the buffer is already zero-padded.
+                         // If BT returned more bytes, truncate to wLength.
+                         size_t send_len = setup.wLength;
+                         if (send_len > sizeof(buf)) send_len = sizeof(buf);
+                         ssize_t wr = write(ep0_fd, buf, send_len);
+                         if (wr < 0) {
+                             printf("[USB] ❌ Failed to send feature report 0x%02x: %s\n",
+                                    report_id, strerror(errno));
+                         }
                      } else {
                          // Failed to get from controller — send zeros
                          printf("[USB] ⚠️ Feature report 0x%02x not available from controller\n", report_id);
@@ -473,6 +500,7 @@ void usb_handle_ep0() {
                          write(ep0_fd, buf, setup.wLength);
                      }
                  } else {
+                     printf("[USB] ⚠️ Unhandled GET_REPORT type=%u for report 0x%02x\n", report_type, report_id);
                      uint8_t buf[64];
                      memset(buf, 0, sizeof(buf));
                      write(ep0_fd, buf, setup.wLength);

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <poll.h>
 #include <csignal>
 #include <atomic>
 #include <cerrno>
@@ -9,6 +10,7 @@
 #include <map>
 #include <vector>
 #include <chrono>
+#include <thread>
 
 #include "bt.h"
 #include "usb.h"
@@ -26,33 +28,46 @@ void signal_handler(int signum) {
     daemon_running = false;
 }
 
-// Process HID OUT data from host (rumble, LEDs, etc.)
-static void process_hid_out() {
-    if (ep_hid_out_fd < 0) return;
-    uint8_t buf[64];
-    int ret = read(ep_hid_out_fd, buf, sizeof(buf));
-    if (ret > 0 && buf[0] == 0x02) {
-        // USB output report (ID 0x02) from host → translate to BT output report (0x31)
-        //
-        // For hidraw write, we send: [0x31] [seq] [tag] [data...]
-        // No 0xA2 prefix — bt_write() handles stripping it if present,
-        // but we build it in the old format for compatibility with audio.cpp
-        // which also calls bt_write(INTERRUPT, ...) with the 0xA2 prefix.
-        uint8_t outputData[78];
-        memset(outputData, 0, sizeof(outputData));
-
-        outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
-        outputData[1] = 0x31; // DualSense Output Report ID
-        outputData[2] = reportSeqCounter << 4;
-        if (++reportSeqCounter == 16) {
-            reportSeqCounter = 0;
+// HID OUT reader thread — runs in a dedicated thread because FunctionFS
+// endpoint read() is inherently blocking (ignores O_NONBLOCK and poll()).
+// This thread blocks on read() waiting for host output reports (rumble, LEDs)
+// while the main thread runs the epoll loop for BT→USB data flow.
+static void hid_out_thread_func() {
+    printf("[HID-OUT] Thread started for host→controller output reports.\n");
+    while (daemon_running && ep_hid_out_fd >= 0) {
+        uint8_t buf[64];
+        int ret = read(ep_hid_out_fd, buf, sizeof(buf));
+        if (ret <= 0) {
+            if (ret == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+                printf("[HID-OUT] Endpoint closed or error: %s\n", strerror(errno));
+                break;
+            }
+            continue;
         }
-        outputData[3] = 0x10;
-        memcpy(outputData + 4, buf + 1, ret - 1);
+        if (buf[0] == 0x02) {
+            // USB output report (ID 0x02) from host → translate to BT output report (0x31)
+            uint8_t outputData[78];
+            memset(outputData, 0, sizeof(outputData));
 
-        fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
-        bt_write(INTERRUPT, outputData, sizeof(outputData));
+            outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
+            outputData[1] = 0x31; // DualSense Output Report ID
+            outputData[2] = reportSeqCounter << 4;
+            if (++reportSeqCounter == 16) {
+                reportSeqCounter = 0;
+            }
+            outputData[3] = 0x10;
+            memcpy(outputData + 4, buf + 1, ret - 1);
+
+            fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+            bt_write(INTERRUPT, outputData, sizeof(outputData));
+
+            static int out_count = 0;
+            if (out_count++ < 3 || out_count % 100 == 0) {
+                printf("[HID-OUT] Forwarded output report #%d (%d bytes)\n", out_count, ret);
+            }
+        }
     }
+    printf("[HID-OUT] Thread exiting.\n");
 }
 
 // Callback when Bluetooth/hidraw receives data
@@ -78,9 +93,6 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
             // BT 0x31: [A1] [31] [seq] [buttons/sticks...]
             // USB 0x01: [01] [buttons/sticks...] (64 bytes total)
 
-            uint8_t usb_report[64];
-            memset(usb_report, 0, sizeof(usb_report));
-
             if (len >= 65) {
                 // Skip A1, 31, seq (data[0], data[1], data[2])
                 // Copy 63 bytes (buttons/sticks/sensors)
@@ -90,21 +102,44 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
                 memcpy(final_usb_report + 1, data + 3, 63);
 
                 static int debug_counter = 0;
-                if (debug_counter++ % 500 == 0) {
-                    printf("[USB] Forwarding input report: LX=%02x LY=%02x RX=%02x RY=%02x L2=%02x R2=%02x\n",
+                static int sent_ok = 0;
+                static int sent_eagain = 0;
+                static int sent_fail = 0;
+
+                // Log first 5 reports unconditionally for debugging,
+                // then every 500th report with cumulative stats
+                if (debug_counter < 5 || debug_counter % 500 == 0) {
+                    printf("[USB] Forwarding input report #%d: LX=%02x LY=%02x RX=%02x RY=%02x L2=%02x R2=%02x "
+                           "(ok=%d eagain=%d fail=%d)\n",
+                           debug_counter,
                            final_usb_report[1], final_usb_report[2], final_usb_report[3],
-                           final_usb_report[4], final_usb_report[5], final_usb_report[6]);
+                           final_usb_report[4], final_usb_report[5], final_usb_report[6],
+                           sent_ok, sent_eagain, sent_fail);
                 }
+                debug_counter++;
 
                 ssize_t wret = write(ep_hid_in_fd, final_usb_report, 64);
                 if (wret < 0 && errno != EAGAIN) {
-                    static int error_count = 0;
-                    if (error_count++ % 100 == 0) {
-                        printf("[USB] ❌ Failed to write to ep_hid_in_fd: %s\n", strerror(errno));
+                    sent_fail++;
+                    if (sent_fail <= 5 || sent_fail % 100 == 0) {
+                        printf("[USB] ❌ Failed to write to ep_hid_in_fd: %s (fail #%d)\n",
+                               strerror(errno), sent_fail);
                     }
                 } else if (wret < 0 && errno == EAGAIN) {
-                    // host is not polling fast enough
+                    sent_eagain++;
+                } else {
+                    sent_ok++;
                 }
+            } else {
+                static int small_len_count = 0;
+                if (small_len_count++ % 100 == 0) {
+                    printf("[USB] ⚠️ Ignoring 0x31 report due to small len=%d\n", len);
+                }
+            }
+        } else {
+            static int unhandled_count = 0;
+            if (unhandled_count++ % 100 == 0) {
+                printf("[USB] ⚠️ Ignoring unhandled report ID: 0x%02x (len=%d)\n", data[1], len);
             }
         }
     }
@@ -183,25 +218,20 @@ int main() {
         }
     }
 
-    // Try to add USB HID OUT endpoint to epoll.
-    bool hid_out_in_epoll = false;
-    if (ep_hid_out_fd != -1) {
-        ev.events = EPOLLIN;
-        ev.data.fd = ep_hid_out_fd;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ep_hid_out_fd, &ev) == -1) {
-            printf("[USB] ep_hid_out_fd does not support epoll (errno=%d: %s), using manual polling.\n",
-                   errno, strerror(errno));
-        } else {
-            hid_out_in_epoll = true;
-        }
+    // Start HID OUT reader in a dedicated thread.
+    // FunctionFS endpoint read() is inherently blocking — it ignores
+    // O_NONBLOCK and poll(). A separate thread lets it block harmlessly
+    // while the main loop processes BT→USB input reports.
+    std::thread hid_out_thread;
+    if (ep_hid_out_fd >= 0) {
+        hid_out_thread = std::thread(hid_out_thread_func);
     }
 
     struct epoll_event events[MAX_EVENTS];
 
     printf("Entering main event loop...\n");
     while (daemon_running) {
-        int timeout_ms = hid_out_in_epoll ? -1 : 4; // 4ms ≈ HID polling interval
-        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, timeout_ms);
+        int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         if (nfds == -1) {
             if (errno == EINTR) {
                 continue;
@@ -218,7 +248,6 @@ int main() {
                     bt_process_epoll_event(events[n].data.fd);
                     if (!bt_is_connected()) {
                         printf("[Main] 🔄 Controle perdido. Tentando reconectar...\n");
-                        // TODO: implement reconnection loop
                         daemon_running = false;
                     }
                     continue;
@@ -233,15 +262,18 @@ int main() {
             else if (fd == ep0_fd && (events[n].events & EPOLLIN)) {
                 usb_handle_ep0();
             }
-            else if (fd == ep_hid_out_fd && (events[n].events & EPOLLIN)) {
-                process_hid_out();
-            }
         }
+    }
 
-        // Manual polling fallback for HID OUT
-        if (!hid_out_in_epoll) {
-            process_hid_out();
+    // Wait for HID OUT thread to finish
+    if (hid_out_thread.joinable()) {
+        // Close the fd to unblock the read() in the thread
+        if (ep_hid_out_fd >= 0) {
+            close(ep_hid_out_fd);
+            ep_hid_out_fd = -1;
         }
+        hid_out_thread.join();
+        printf("[HID-OUT] Thread joined.\n");
     }
 
     printf("Cleaning up...\n");
