@@ -1,3 +1,30 @@
-# Hide physical DualSense (Bluetooth) from games
+# Hide the PHYSICAL Bluetooth DualSense from applications (Steam, SDL, etc.)
+# while keeping it accessible to root (the bridge daemon).
+#
+# Problem: When the bridge is running, two DualSense devices exist:
+#   1. Real BT DualSense (bus=0005) → used by bridge internally
+#   2. Virtual USB DualSense (bus=0003 via dummy_hcd) → for games/Steam
+#
+# Without these rules, Steam opens the real BT DualSense via hidraw and
+# sends output reports (rumble, LEDs) directly to it, bypassing the bridge.
+# This also causes duplicate controller detection.
+#
+# NOTE: The steam-devices package (60-steam-input.rules) applies TAG+="uaccess"
+# to ALL DualSense hidraw devices (matching *054C:0CE6*), which grants user
+# access via ACLs regardless of MODE. We must explicitly remove the uaccess
+# tag for BT devices to truly block non-root access.
+
+# ── evdev: Remove BT DualSense from joystick/input detection ──
 # Bustype 0005 = Bluetooth
 SUBSYSTEM=="input", ATTRS{id/bustype}=="0005", ATTRS{id/vendor}=="054c", ATTRS{id/product}=="0ce6", ENV{ID_INPUT_JOYSTICK}="", ENV{ID_INPUT_JOYPAD}="", ENV{ID_INPUT}=""
+
+# ── hidraw: Restrict BT DualSense hidraw to root only ──
+# This prevents Steam/SDL from opening the real controller's hidraw node.
+# The bridge daemon (running as root) can still access it.
+# We must remove the "uaccess" tag that 60-steam-input.rules adds,
+# otherwise systemd-logind creates an ACL that overrides MODE.
+# Match: Bluetooth HID (bus 0005), Sony VID 054C, DualSense PID 0CE6
+SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0CE6.*", MODE="0600", GROUP="root", TAG-="uaccess"
+
+# ── hidraw: Also handle DualSense Edge (PID 0DF2) ──
+SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0DF2.*", MODE="0600", GROUP="root", TAG-="uaccess"
