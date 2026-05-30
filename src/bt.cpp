@@ -457,14 +457,29 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     // The caller currently sends: [A2] [31] [seq] [data...]
     // We need to strip the 0xA2 header and send [31] [seq] [data...]
     if (len > 1 && data[0] == 0xA2) {
+      static int bt_write_count = 0;
+
+      // Log detailed hex dump for the first few writes
+      if (bt_write_count < 5) {
+        printf("[BT] 📤 Writing output report #%d to hidraw (fd=%d): %d bytes\n",
+               bt_write_count, hidraw_fd, len - 1);
+        printf("[BT]    Hex (to hidraw): ");
+        for (uint16_t i = 1; i < len && i < 21; i++) printf("%02x ", data[i]);
+        if (len > 21) printf("...");
+        printf("\n");
+        printf("[BT]    flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
+               len > 4 ? data[4] : 0, len > 5 ? data[5] : 0,
+               len > 6 ? data[6] : 0, len > 7 ? data[7] : 0);
+      }
+
       ssize_t written = write(hidraw_fd, data + 1, len - 1);
       if (written < 0) {
-        printf("[BT] ❌ Falha ao escrever no hidraw: %s\n", strerror(errno));
+        printf("[BT] ❌ Falha ao escrever no hidraw (fd=%d): %s (errno=%d)\n",
+               hidraw_fd, strerror(errno), errno);
       } else {
-        static int bt_write_count = 0;
-        if (bt_write_count < 5 || bt_write_count % 100 == 0) {
-          printf("[BT] ✅ Output report escrito no hidraw: %zd bytes (report_id=0x%02x)\n",
-                 written, data[1]);
+        if (bt_write_count < 10 || bt_write_count % 100 == 0) {
+          printf("[BT] ✅ Output report #%d escrito no hidraw: %zd/%d bytes (report_id=0x%02x)\n",
+                 bt_write_count, written, len - 1, data[1]);
         }
         bt_write_count++;
       }
@@ -472,7 +487,8 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
       // Already in raw format (no A2 prefix)
       ssize_t written = write(hidraw_fd, data, len);
       if (written < 0 && errno != EAGAIN) {
-        printf("[BT] ❌ Falha ao escrever no hidraw: %s\n", strerror(errno));
+        printf("[BT] ❌ Falha ao escrever no hidraw: %s (errno=%d)\n",
+               strerror(errno), errno);
       }
     }
   } else if (channel == CONTROL) {

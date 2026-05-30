@@ -23,6 +23,59 @@ std::map<uint8_t, std::vector<uint8_t>> feature_data;
 std::atomic<bool> daemon_running{true};
 int reportSeqCounter = 0;
 
+// Send a brief rumble pulse directly to the BT controller to verify
+// the downstream output path works independently of the host.
+static void send_startup_rumble_test() {
+    printf("[TEST] 🔧 Sending direct rumble test to BT controller...\n");
+
+    // Build a valid BT output report: [A2][31][seq][tag][common 47][reserved 24][CRC 4]
+    uint8_t outputData[79];
+    memset(outputData, 0, sizeof(outputData));
+
+    outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
+    outputData[1] = 0x31; // BT Output Report ID
+    outputData[2] = (reportSeqCounter << 4) | 0x00; // seq_tag
+    if (++reportSeqCounter == 16) reportSeqCounter = 0;
+    outputData[3] = 0x10; // DS_OUTPUT_TAG (mandatory)
+
+    // Common payload starts at outputData[4]:
+    //   [4] = valid_flag0, [5] = valid_flag1
+    //   [6] = motor_right, [7] = motor_left
+    outputData[4] = 0x03; // valid_flag0: COMPATIBLE_VIBRATION | HAPTICS_SELECT
+    outputData[5] = 0x00; // valid_flag1
+    outputData[6] = 128;  // motor_right (weak)
+    outputData[7] = 128;  // motor_left (strong)
+
+    // Compute CRC32 over [0x31..reserved] (74 bytes), using 0xA2 seed
+    fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+
+    printf("[TEST]    Report hex (first 12): ");
+    for (int i = 0; i < 12; i++) printf("%02x ", outputData[i]);
+    printf("\n");
+
+    bt_write(INTERRUPT, outputData, sizeof(outputData));
+    printf("[TEST] ✅ Rumble ON sent. Waiting 800ms...\n");
+
+    usleep(800000); // 800ms vibration
+
+    // Send stop: motors = 0
+    memset(outputData, 0, sizeof(outputData));
+    outputData[0] = 0xA2;
+    outputData[1] = 0x31;
+    outputData[2] = (reportSeqCounter << 4) | 0x00;
+    if (++reportSeqCounter == 16) reportSeqCounter = 0;
+    outputData[3] = 0x10;
+    outputData[4] = 0x03; // valid_flag0
+    outputData[5] = 0x00;
+    outputData[6] = 0;    // motor_right = 0
+    outputData[7] = 0;    // motor_left = 0
+    fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+    bt_write(INTERRUPT, outputData, sizeof(outputData));
+    printf("[TEST] ✅ Rumble OFF sent. Test complete.\n");
+    printf("[TEST]    Did the controller vibrate? If YES → BT output path works.\n");
+    printf("[TEST]    If NO → check hidraw write permissions and BT connection.\n\n");
+}
+
 void signal_handler(int signum) {
     printf("\nCaught signal %d. Initiating graceful shutdown...\n", signum);
     daemon_running = false;
@@ -34,6 +87,11 @@ void signal_handler(int signum) {
 // while the main thread runs the epoll loop for BT→USB data flow.
 static void hid_out_thread_func() {
     printf("[HID-OUT] Thread started for host→controller output reports.\n");
+    printf("[HID-OUT] ep_hid_out_fd=%d — blocking on read() for host output reports...\n", ep_hid_out_fd);
+
+    static int out_count = 0;
+    int heartbeat = 0;
+
     while (daemon_running && ep_hid_out_fd >= 0 && !usb_shutting_down) {
         uint8_t buf[64];
         int ret = read(ep_hid_out_fd, buf, sizeof(buf));
@@ -42,45 +100,66 @@ static void hid_out_thread_func() {
                 printf("[HID-OUT] Endpoint closed or error: %s\n", strerror(errno));
                 break;
             }
+            // For EAGAIN (non-blocking mode): add heartbeat logging
+            heartbeat++;
+            if (heartbeat % 10000 == 1) {
+                printf("[HID-OUT] 💓 Thread alive, still waiting for output reports (poll #%d)\n", heartbeat);
+            }
+            // Small sleep to avoid busy-wait if O_NONBLOCK is active
+            usleep(1000); // 1ms
             continue;
         }
+
+        // Log ALL received data for the first few reports
+        if (out_count < 10) {
+            printf("[HID-OUT] 📥 Received %d bytes from OUT endpoint, report_id=0x%02x\n", ret, buf[0]);
+            printf("[HID-OUT]    Hex: ");
+            for (int i = 0; i < ret && i < 20; i++) printf("%02x ", buf[i]);
+            if (ret > 20) printf("...");
+            printf("\n");
+        }
+
         if (buf[0] == 0x02) {
             // USB output report (ID 0x02) from host → translate to BT output report (0x31)
-            uint8_t outputData[78];
+            // USB format (63 bytes): [0x02] [common 47 bytes] [reserved 15 bytes]
+            // BT  format (78 bytes): [0x31] [seq_tag] [tag=0x10] [common 47 bytes] [reserved 24 bytes] [CRC32 4 bytes]
+            // We prepend 0xA2 as bt_write() strips it before sending to hidraw.
+            uint8_t outputData[79]; // 0xA2 + 78 bytes BT report
             memset(outputData, 0, sizeof(outputData));
 
             outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
-            outputData[1] = 0x31; // DualSense Output Report ID
-            outputData[2] = reportSeqCounter << 4;
+            outputData[1] = 0x31; // DualSense BT Output Report ID
+            outputData[2] = (reportSeqCounter << 4) | 0x00; // seq_tag: high nibble = seq, low = 0
             if (++reportSeqCounter == 16) {
                 reportSeqCounter = 0;
             }
-            // Copy flags and payload from USB report into BT report
-            // USB 0x02: [0x02] [flag0] [flag1] [motor_r] [motor_l] [data...]
-            // BT  0x31: [0xA2] [0x31]  [seq]   [flag0]   [flag1]   [motor_r] [motor_l] [data...]
-            //
-            // Ensure rumble flags are set: flag0 bits 0x01 and 0x02 must both
-            // be set for the controller to apply motor values.
-            size_t payload_len = ret - 1; // skip USB report ID
-            if (payload_len > 74) payload_len = 74; // cap to BT report size
-            memcpy(outputData + 3, buf + 1, payload_len);
+            outputData[3] = 0x10; // tag = DS_OUTPUT_TAG (MANDATORY — controller ignores report without this)
 
+            // Copy the 47-byte common payload from USB report into BT report.
+            // USB buf: [0x02][common 47 bytes][reserved 15 bytes] — common starts at buf[1]
+            // BT out:  [0xA2][0x31][seq][tag][common 47 bytes][reserved 24][CRC32 4]
+            size_t common_len = ret - 1; // skip USB report ID (0x02)
+            if (common_len > 47) common_len = 47; // common is exactly 47 bytes
+            memcpy(outputData + 4, buf + 1, common_len);
+
+            // CRC32 covers bytes 1..74 (report_id through reserved, 74 bytes), result in bytes 75..78
             fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
             if (usb_shutting_down) break; // Don't submit if shutting down
             bt_write(INTERRUPT, outputData, sizeof(outputData));
 
-            static int out_count = 0;
-            if (out_count < 5 || out_count % 100 == 0) {
-                printf("[HID-OUT] Forwarded output report #%d (%d USB bytes → 78 BT bytes) "
+            if (out_count < 10 || out_count % 100 == 0) {
+                printf("[HID-OUT] ✅ Forwarded output report #%d (%d USB bytes → 78 BT bytes) "
                        "flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
                        out_count, ret,
-                       outputData[3], outputData[4],
-                       outputData[5], outputData[6]);
+                       outputData[4], outputData[5],
+                       outputData[6], outputData[7]);
             }
             out_count++;
+        } else {
+            printf("[HID-OUT] ⚠️ Unknown output report ID: 0x%02x (len=%d) — ignoring\n", buf[0], ret);
         }
     }
-    printf("[HID-OUT] Thread exiting.\n");
+    printf("[HID-OUT] Thread exiting (forwarded %d reports total).\n", out_count);
 }
 
 // Callback when Bluetooth/hidraw receives data
@@ -203,6 +282,11 @@ int main() {
     } else {
         printf("[Audio] Skipped — UAC1 not available on this UDC.\n");
     }
+
+    // ── Startup rumble test ──
+    // Sends a direct rumble pulse to verify the BT→controller output path
+    // works, independently of whether the host sends output reports.
+    send_startup_rumble_test();
 
     // Start the dedicated HID IN writer thread.
     // This thread drains the input queue with blocking (synchronous)
