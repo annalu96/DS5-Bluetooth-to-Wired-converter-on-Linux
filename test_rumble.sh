@@ -66,42 +66,64 @@ if ! command -v fftest &>/dev/null; then
     
     # Fallback: use Python to send FF effect
     python3 -c "
-import struct, fcntl, os, time
+import ctypes, struct, fcntl, os, time
 
 # Open the event device
 fd = os.open('$VIRTUAL_EVENT', os.O_RDWR)
 
-# Upload a rumble effect
-# struct ff_effect for FF_RUMBLE
-# See linux/input.h
-FF_RUMBLE = 0x50
-ff_effect = struct.pack(
-    'HhHHHHHHHHH6x',  # type, id, direction, trigger(btn,interval), replay(len,delay), strong, weak + padding
-    FF_RUMBLE,  # type
-    -1,         # id (-1 = auto-assign)
-    0,          # direction
-    0, 0,       # trigger button, trigger interval
-    500, 0,     # replay length (ms), replay delay
-    0xC000,     # strong magnitude
-    0xC000,     # weak magnitude
-)
+# Define the ff_effect struct using ctypes for correct layout
+class ff_rumble_effect(ctypes.Structure):
+    _fields_ = [('strong_magnitude', ctypes.c_uint16),
+                ('weak_magnitude', ctypes.c_uint16)]
 
-# EVIOCSFF = 0x40304580
+class ff_trigger(ctypes.Structure):
+    _fields_ = [('button', ctypes.c_uint16),
+                ('interval', ctypes.c_uint16)]
+
+class ff_replay(ctypes.Structure):
+    _fields_ = [('length', ctypes.c_uint16),
+                ('delay', ctypes.c_uint16)]
+
+class ff_effect_union(ctypes.Union):
+    _fields_ = [('rumble', ff_rumble_effect),
+                ('_pad', ctypes.c_uint8 * 28)]
+
+class ff_effect(ctypes.Structure):
+    _fields_ = [('type', ctypes.c_uint16),
+                ('id', ctypes.c_int16),
+                ('direction', ctypes.c_uint16),
+                ('trigger', ff_trigger),
+                ('replay', ff_replay),
+                ('u', ff_effect_union)]
+
+effect = ff_effect()
+effect.type = 0x50  # FF_RUMBLE
+effect.id = -1
+effect.direction = 0
+effect.trigger.button = 0
+effect.trigger.interval = 0
+effect.replay.length = 800  # 800ms
+effect.replay.delay = 0
+effect.u.rumble.strong_magnitude = 0xC000
+effect.u.rumble.weak_magnitude = 0xC000
+
+# EVIOCSFF
 EVIOCSFF = 0x40304580
-result = fcntl.ioctl(fd, EVIOCSFF, ff_effect)
-effect_id = struct.unpack_from('h', result, 2)[0]
+buf = bytes(effect)
+result = fcntl.ioctl(fd, EVIOCSFF, buf)
+effect2 = ff_effect.from_buffer_copy(result)
+effect_id = effect2.id
 print(f'[test] Uploaded FF effect id={effect_id}')
 
-# Play the effect: write EV_FF event
-# struct input_event: time(16 bytes) + type(2) + code(2) + value(4)
+# Play: write EV_FF event
 EV_FF = 0x15
-event = struct.pack('llHHi', 0, 0, EV_FF, effect_id, 1)  # value=1 = play
+event = struct.pack('qqHHi', 0, 0, EV_FF, effect_id, 1)
 os.write(fd, event)
 print('[test] ✅ Rumble ON — controller should vibrate now')
 time.sleep(0.8)
 
 # Stop
-event = struct.pack('llHHi', 0, 0, EV_FF, effect_id, 0)
+event = struct.pack('qqHHi', 0, 0, EV_FF, effect_id, 0)
 os.write(fd, event)
 print('[test] ✅ Rumble OFF')
 

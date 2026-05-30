@@ -23,6 +23,9 @@
 #include <poll.h>
 #include <chrono>
 
+// Forward declaration — defined in main.cpp
+extern int translate_usb_output_to_bt(const uint8_t *usb_buf, int usb_len, const char *source);
+
 uint8_t mute[2] = {0}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 float volume[2] = {1.0f, 1.0f}; // 0: SPEAKER(0x02) 1: MIC(0x05)
 
@@ -301,7 +304,7 @@ int usb_init() {
         return -1;
     }
 
-    ep_hid_out_fd = open("/dev/ffs/ep2", O_RDWR | O_NONBLOCK);
+    ep_hid_out_fd = open("/dev/ffs/ep2", O_RDWR);
     if (ep_hid_out_fd < 0) {
         perror("[USB] Failed to open ep2 (HID OUT)");
         return -1;
@@ -698,6 +701,16 @@ void usb_handle_ep0() {
                              // Use hidraw ioctl to set the feature report directly
                              // hidraw expects: [report_id][data...]
                              bt_set_feature_report(buf, ret);
+                         } else if (report_type == 2) { // Output Report
+                             // hid-playstation sends output reports (rumble, LEDs)
+                             // via SET_REPORT on the control pipe (EP0) rather
+                             // than the interrupt OUT endpoint.
+                             printf("[USB] 📤 SET_REPORT Output id=0x%02x len=%d — forwarding to BT\n",
+                                    report_id, ret);
+                             translate_usb_output_to_bt(buf, ret, "EP0-SET_REPORT");
+                         } else {
+                             printf("[USB] ⚠️ SET_REPORT unhandled type=%u id=0x%02x len=%d\n",
+                                    report_type, report_id, ret);
                          }
                      }
                  } else if (setup.wLength > 0) {

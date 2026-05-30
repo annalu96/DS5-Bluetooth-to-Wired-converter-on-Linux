@@ -11,6 +11,7 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <mutex>
 
 #include "bt.h"
 #include "usb.h"
@@ -21,7 +22,8 @@
 
 std::map<uint8_t, std::vector<uint8_t>> feature_data;
 std::atomic<bool> daemon_running{true};
-int reportSeqCounter = 0;
+static int reportSeqCounter = 0;
+static std::mutex seq_mutex; // Protects reportSeqCounter from concurrent access
 
 // Send a brief rumble pulse directly to the BT controller to verify
 // the downstream output path works independently of the host.
@@ -76,6 +78,54 @@ static void send_startup_rumble_test() {
     printf("[TEST]    If NO → check hidraw write permissions and BT connection.\n\n");
 }
 
+// Translate a USB output report (ID 0x02, 63 bytes) to BT output report
+// (ID 0x31, 78 bytes) and send it to the controller via hidraw.
+// This function is called from:
+//   - hid_out_thread_func (interrupt OUT endpoint)
+//   - usb_handle_ep0 via SET_REPORT (control pipe)
+// Returns: number of bytes forwarded, or -1 on error.
+int translate_usb_output_to_bt(const uint8_t *usb_buf, int usb_len, const char *source) {
+    static int fwd_count = 0;
+
+    // USB format (63 bytes): [0x02] [common 47 bytes] [reserved 15 bytes]
+    // BT  format (78 bytes): [0x31] [seq_tag] [tag=0x10] [common 47 bytes] [reserved 24 bytes] [CRC32 4 bytes]
+    // We prepend 0xA2 as bt_write() strips it before sending to hidraw.
+    uint8_t outputData[79]; // 0xA2 + 78 bytes BT report
+    memset(outputData, 0, sizeof(outputData));
+
+    outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
+    outputData[1] = 0x31; // DualSense BT Output Report ID
+    {
+        std::lock_guard<std::mutex> lock(seq_mutex);
+        outputData[2] = (reportSeqCounter << 4) | 0x00; // seq_tag
+        if (++reportSeqCounter == 16) reportSeqCounter = 0;
+    }
+    outputData[3] = 0x10; // tag = DS_OUTPUT_TAG (MANDATORY)
+
+    // Copy the 47-byte common payload from USB report into BT report.
+    // USB buf: [0x02][common 47 bytes][reserved 15 bytes] — common starts at buf[1]
+    // BT out:  [0xA2][0x31][seq][tag][common 47 bytes][reserved 24][CRC32 4]
+    size_t common_len = usb_len - 1; // skip USB report ID (0x02)
+    if (common_len > 47) common_len = 47;
+    memcpy(outputData + 4, usb_buf + 1, common_len);
+
+    // CRC32 covers bytes 1..74, result in bytes 75..78
+    fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+
+    if (usb_shutting_down) return -1;
+    bt_write(INTERRUPT, outputData, sizeof(outputData));
+
+    if (fwd_count < 10 || fwd_count % 100 == 0) {
+        printf("[OUTPUT] ✅ Forwarded output report #%d via %s (%d USB bytes → 78 BT bytes) "
+               "flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
+               fwd_count, source, usb_len,
+               outputData[4], outputData[5],
+               outputData[6], outputData[7]);
+    }
+    fwd_count++;
+    return 78;
+}
+
 void signal_handler(int signum) {
     printf("\nCaught signal %d. Initiating graceful shutdown...\n", signum);
     daemon_running = false;
@@ -120,40 +170,7 @@ static void hid_out_thread_func() {
         }
 
         if (buf[0] == 0x02) {
-            // USB output report (ID 0x02) from host → translate to BT output report (0x31)
-            // USB format (63 bytes): [0x02] [common 47 bytes] [reserved 15 bytes]
-            // BT  format (78 bytes): [0x31] [seq_tag] [tag=0x10] [common 47 bytes] [reserved 24 bytes] [CRC32 4 bytes]
-            // We prepend 0xA2 as bt_write() strips it before sending to hidraw.
-            uint8_t outputData[79]; // 0xA2 + 78 bytes BT report
-            memset(outputData, 0, sizeof(outputData));
-
-            outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
-            outputData[1] = 0x31; // DualSense BT Output Report ID
-            outputData[2] = (reportSeqCounter << 4) | 0x00; // seq_tag: high nibble = seq, low = 0
-            if (++reportSeqCounter == 16) {
-                reportSeqCounter = 0;
-            }
-            outputData[3] = 0x10; // tag = DS_OUTPUT_TAG (MANDATORY — controller ignores report without this)
-
-            // Copy the 47-byte common payload from USB report into BT report.
-            // USB buf: [0x02][common 47 bytes][reserved 15 bytes] — common starts at buf[1]
-            // BT out:  [0xA2][0x31][seq][tag][common 47 bytes][reserved 24][CRC32 4]
-            size_t common_len = ret - 1; // skip USB report ID (0x02)
-            if (common_len > 47) common_len = 47; // common is exactly 47 bytes
-            memcpy(outputData + 4, buf + 1, common_len);
-
-            // CRC32 covers bytes 1..74 (report_id through reserved, 74 bytes), result in bytes 75..78
-            fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
-            if (usb_shutting_down) break; // Don't submit if shutting down
-            bt_write(INTERRUPT, outputData, sizeof(outputData));
-
-            if (out_count < 10 || out_count % 100 == 0) {
-                printf("[HID-OUT] ✅ Forwarded output report #%d (%d USB bytes → 78 BT bytes) "
-                       "flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
-                       out_count, ret,
-                       outputData[4], outputData[5],
-                       outputData[6], outputData[7]);
-            }
+            translate_usb_output_to_bt(buf, ret, "OUT-EP");
             out_count++;
         } else {
             printf("[HID-OUT] ⚠️ Unknown output report ID: 0x%02x (len=%d) — ignoring\n", buf[0], ret);
