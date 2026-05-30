@@ -16,6 +16,9 @@
 #include <cerrno>
 #include <map>
 #include <vector>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
 #include "bt.h"
 #include <poll.h>
 #include <chrono>
@@ -28,6 +31,25 @@ int ep_hid_in_fd = -1;
 int ep_hid_out_fd = -1;
 bool usb_gadget_bound = false;
 bool uac1_enabled = false;
+std::atomic<bool> usb_shutting_down{false};
+
+// ─── Thread-safe input report queue ───
+// Eliminates the FunctionFS O_NONBLOCK race condition by ensuring
+// all writes to ep_hid_in_fd use the synchronous (blocking) path,
+// where ffs_io_data stays valid on the stack until completion.
+static std::mutex input_queue_mtx;
+static std::condition_variable input_queue_cv;
+// Ring buffer: 4 slots. If the writer can't keep up, we keep only
+// the latest report (gamepad state is absolute, not incremental).
+static constexpr int INPUT_QUEUE_SIZE = 4;
+static uint8_t input_queue[INPUT_QUEUE_SIZE][64];
+static int input_queue_head = 0;
+static int input_queue_tail = 0;
+static std::thread hid_in_thread;
+
+// Debug counters for the writer thread
+static int in_sent_ok = 0;
+static int in_sent_fail = 0;
 
 
 // HID descriptor structure for FunctionFS
@@ -269,7 +291,11 @@ int usb_init() {
     // FunctionFS now only has HID endpoints:
     // ep1 = HID IN (reports from controller to host)
     // ep2 = HID OUT (output reports from host to controller)
-    ep_hid_in_fd = open("/dev/ffs/ep1", O_RDWR | O_NONBLOCK);
+    // Open ep1 WITHOUT O_NONBLOCK. The dedicated writer thread will
+    // use blocking writes, which take the safe synchronous path through
+    // FunctionFS (ffs_epfile_io). This keeps ffs_io_data on the stack
+    // until the completion callback fires, preventing use-after-free.
+    ep_hid_in_fd = open("/dev/ffs/ep1", O_RDWR);
     if (ep_hid_in_fd < 0) {
         perror("[USB] Failed to open ep1 (HID IN)");
         return -1;
@@ -353,17 +379,153 @@ int usb_init() {
     return 0;
 }
 
-void usb_deinit() {
+// ─── Input report writer thread ───
+// Drains the input queue and writes to ep_hid_in_fd using blocking I/O.
+// The synchronous FunctionFS path keeps ffs_io_data on the stack until
+// the URB completion fires, preventing the use-after-free race.
+static void hid_in_thread_func() {
+    printf("[HID-IN] Writer thread started.\n");
+
+    // Minimum interval between writes (USB polling interval = 1ms)
+    constexpr auto MIN_INTERVAL = std::chrono::microseconds(900);
+    auto last_write = std::chrono::steady_clock::now();
+
+    while (!usb_shutting_down && ep_hid_in_fd >= 0) {
+        uint8_t report[64];
+        bool have_report = false;
+
+        {
+            std::unique_lock<std::mutex> lock(input_queue_mtx);
+            // Wait up to 10ms for a report (so we can check shutdown flag)
+            input_queue_cv.wait_for(lock, std::chrono::milliseconds(10), [] {
+                return input_queue_head != input_queue_tail || usb_shutting_down;
+            });
+
+            if (usb_shutting_down) break;
+
+            if (input_queue_head != input_queue_tail) {
+                // If multiple reports queued, skip to the latest
+                // (gamepad state is absolute, old frames are stale)
+                int latest = (input_queue_head - 1) % INPUT_QUEUE_SIZE;
+                if (latest < 0) latest += INPUT_QUEUE_SIZE;
+                memcpy(report, input_queue[latest], 64);
+                input_queue_tail = input_queue_head; // drain all
+                have_report = true;
+            }
+        }
+
+        if (!have_report) continue;
+
+        // Rate limit: don't write faster than USB polling interval
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = now - last_write;
+        if (elapsed < MIN_INTERVAL) {
+            std::this_thread::sleep_for(MIN_INTERVAL - elapsed);
+        }
+
+        if (usb_shutting_down || ep_hid_in_fd < 0) break;
+
+        ssize_t wret = write(ep_hid_in_fd, report, 64);
+        last_write = std::chrono::steady_clock::now();
+
+        if (wret < 0) {
+            if (errno == ESHUTDOWN || errno == ENODEV) {
+                printf("[HID-IN] Endpoint shutdown, exiting writer thread.\n");
+                break;
+            }
+            in_sent_fail++;
+            if (in_sent_fail <= 5 || in_sent_fail % 100 == 0) {
+                printf("[HID-IN] ❌ Write failed: %s (fail #%d)\n",
+                       strerror(errno), in_sent_fail);
+            }
+        } else {
+            in_sent_ok++;
+            if (in_sent_ok < 5 || in_sent_ok % 500 == 0) {
+                printf("[HID-IN] ✅ Input report #%d sent (ok=%d fail=%d)\n",
+                       in_sent_ok, in_sent_ok, in_sent_fail);
+            }
+        }
+    }
+    printf("[HID-IN] Writer thread exiting (ok=%d fail=%d).\n",
+           in_sent_ok, in_sent_fail);
+}
+
+void usb_enqueue_input_report(const uint8_t *data, size_t len) {
+    if (len > 64) len = 64;
+    std::lock_guard<std::mutex> lock(input_queue_mtx);
+    int slot = input_queue_head % INPUT_QUEUE_SIZE;
+    memcpy(input_queue[slot], data, len);
+    input_queue_head++;
+    // If the queue is full, advance tail (drop oldest)
+    if (input_queue_head - input_queue_tail > INPUT_QUEUE_SIZE) {
+        input_queue_tail = input_queue_head - INPUT_QUEUE_SIZE;
+    }
+    input_queue_cv.notify_one();
+}
+
+void usb_start_in_thread() {
+    if (ep_hid_in_fd >= 0 && !hid_in_thread.joinable()) {
+        in_sent_ok = 0;
+        in_sent_fail = 0;
+        hid_in_thread = std::thread(hid_in_thread_func);
+    }
+}
+
+void usb_stop_in_thread() {
+    if (hid_in_thread.joinable()) {
+        // usb_shutting_down should already be true;
+        // notify the CV so the thread wakes up and exits
+        input_queue_cv.notify_all();
+        hid_in_thread.join();
+        printf("[HID-IN] Writer thread joined.\n");
+    }
+}
+
+void usb_unbind_udc() {
+    // Signal all writers to stop submitting URBs immediately.
+    usb_shutting_down = true;
+    // Brief pause so any in-flight write() syscalls can complete
+    // before we tear down the gadget underneath them.
+    usleep(20000); // 20ms
+
+    // CRITICAL: Unbind the UDC BEFORE closing FFS file descriptors.
+    // dummy_hcd's timer may still have pending URBs referencing
+    // completion structs inside FFS endpoint data. If we close()
+    // the fds first, FFS frees those structs, and dummy_timer()
+    // triggers a use-after-free when it calls complete().
+    // Unbinding the UDC first forces dummy_hcd to cancel/complete
+    // all pending URBs while the FFS structures are still alive.
+    if (usb_gadget_bound) {
+        printf("[USB] Unbinding UDC before closing endpoints...\n");
+        FILE *f = fopen("/sys/kernel/config/usb_gadget/dualsense/UDC", "w");
+        if (f) {
+            fprintf(f, "\n");
+            fclose(f);
+        }
+        // Wait for the kernel to finish processing the unbind.
+        // dummy_hcd needs time to cancel queued URBs and run
+        // their completion handlers safely.
+        usleep(500000); // 500ms
+        usb_gadget_bound = false;
+        printf("[USB] UDC unbound.\n");
+    }
+}
+
+void usb_close_fds() {
+    // Now safe to close FFS file descriptors — no more pending URBs.
     if (ep_hid_in_fd >= 0) { close(ep_hid_in_fd); ep_hid_in_fd = -1; }
     if (ep_hid_out_fd >= 0) { close(ep_hid_out_fd); ep_hid_out_fd = -1; }
     if (ep0_fd >= 0) { close(ep0_fd); ep0_fd = -1; }
-
-    usb_gadget_bound = false;
 
     // Use teardown script for proper cleanup
     if (system("./teardown_gadget.sh 2>/dev/null") != 0) {
         system("../teardown_gadget.sh 2>/dev/null");
     }
+}
+
+void usb_deinit() {
+    usb_unbind_udc();
+    usb_close_fds();
 }
 
 #ifndef HID_REQ_GET_REPORT

@@ -458,8 +458,15 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     // We need to strip the 0xA2 header and send [31] [seq] [data...]
     if (len > 1 && data[0] == 0xA2) {
       ssize_t written = write(hidraw_fd, data + 1, len - 1);
-      if (written < 0 && errno != EAGAIN) {
+      if (written < 0) {
         printf("[BT] ❌ Falha ao escrever no hidraw: %s\n", strerror(errno));
+      } else {
+        static int bt_write_count = 0;
+        if (bt_write_count < 5 || bt_write_count % 100 == 0) {
+          printf("[BT] ✅ Output report escrito no hidraw: %zd bytes (report_id=0x%02x)\n",
+                 written, data[1]);
+        }
+        bt_write_count++;
       }
     } else {
       // Already in raw format (no A2 prefix)

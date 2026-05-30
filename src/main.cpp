@@ -34,7 +34,7 @@ void signal_handler(int signum) {
 // while the main thread runs the epoll loop for BT→USB data flow.
 static void hid_out_thread_func() {
     printf("[HID-OUT] Thread started for host→controller output reports.\n");
-    while (daemon_running && ep_hid_out_fd >= 0) {
+    while (daemon_running && ep_hid_out_fd >= 0 && !usb_shutting_down) {
         uint8_t buf[64];
         int ret = read(ep_hid_out_fd, buf, sizeof(buf));
         if (ret <= 0) {
@@ -55,16 +55,29 @@ static void hid_out_thread_func() {
             if (++reportSeqCounter == 16) {
                 reportSeqCounter = 0;
             }
-            outputData[3] = 0x10;
-            memcpy(outputData + 4, buf + 1, ret - 1);
+            // Copy flags and payload from USB report into BT report
+            // USB 0x02: [0x02] [flag0] [flag1] [motor_r] [motor_l] [data...]
+            // BT  0x31: [0xA2] [0x31]  [seq]   [flag0]   [flag1]   [motor_r] [motor_l] [data...]
+            //
+            // Ensure rumble flags are set: flag0 bits 0x01 and 0x02 must both
+            // be set for the controller to apply motor values.
+            size_t payload_len = ret - 1; // skip USB report ID
+            if (payload_len > 74) payload_len = 74; // cap to BT report size
+            memcpy(outputData + 3, buf + 1, payload_len);
 
             fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
+            if (usb_shutting_down) break; // Don't submit if shutting down
             bt_write(INTERRUPT, outputData, sizeof(outputData));
 
             static int out_count = 0;
-            if (out_count++ < 3 || out_count % 100 == 0) {
-                printf("[HID-OUT] Forwarded output report #%d (%d bytes)\n", out_count, ret);
+            if (out_count < 5 || out_count % 100 == 0) {
+                printf("[HID-OUT] Forwarded output report #%d (%d USB bytes → 78 BT bytes) "
+                       "flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
+                       out_count, ret,
+                       outputData[3], outputData[4],
+                       outputData[5], outputData[6]);
             }
+            out_count++;
         }
     }
     printf("[HID-OUT] Thread exiting.\n");
@@ -102,44 +115,29 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
                 memcpy(final_usb_report + 1, data + 3, 63);
 
                 static int debug_counter = 0;
-                static int sent_ok = 0;
-                static int sent_eagain = 0;
-                static int sent_fail = 0;
 
                 // Log first 5 reports unconditionally for debugging,
                 // then every 500th report with cumulative stats
                 if (debug_counter < 5 || debug_counter % 500 == 0) {
-                    printf("[USB] Forwarding input report #%d: LX=%02x LY=%02x RX=%02x RY=%02x L2=%02x R2=%02x "
-                           "(ok=%d eagain=%d fail=%d)\n",
+                    printf("[USB] Enqueuing input report #%d: LX=%02x LY=%02x RX=%02x RY=%02x L2=%02x R2=%02x\n",
                            debug_counter,
                            final_usb_report[1], final_usb_report[2], final_usb_report[3],
-                           final_usb_report[4], final_usb_report[5], final_usb_report[6],
-                           sent_ok, sent_eagain, sent_fail);
+                           final_usb_report[4], final_usb_report[5], final_usb_report[6]);
                 }
                 debug_counter++;
 
-                ssize_t wret = write(ep_hid_in_fd, final_usb_report, 64);
-                if (wret < 0 && errno != EAGAIN) {
-                    sent_fail++;
-                    if (sent_fail <= 5 || sent_fail % 100 == 0) {
-                        printf("[USB] ❌ Failed to write to ep_hid_in_fd: %s (fail #%d)\n",
-                               strerror(errno), sent_fail);
-                    }
-                } else if (wret < 0 && errno == EAGAIN) {
-                    sent_eagain++;
-                } else {
-                    sent_ok++;
-                }
+                if (usb_shutting_down) return; // Don't enqueue during shutdown
+                usb_enqueue_input_report(final_usb_report, 64);
             } else {
                 static int small_len_count = 0;
                 if (small_len_count++ % 100 == 0) {
-                    printf("[USB] ⚠️ Ignoring 0x31 report due to small len=%d\n", len);
+                    printf("[USB] \u26a0\ufe0f Ignoring 0x31 report due to small len=%d\n", len);
                 }
             }
         } else {
             static int unhandled_count = 0;
             if (unhandled_count++ % 100 == 0) {
-                printf("[USB] ⚠️ Ignoring unhandled report ID: 0x%02x (len=%d)\n", data[1], len);
+                printf("[USB] \u26a0\ufe0f Ignoring unhandled report ID: 0x%02x (len=%d)\n", data[1], len);
             }
         }
     }
@@ -206,6 +204,12 @@ int main() {
         printf("[Audio] Skipped — UAC1 not available on this UDC.\n");
     }
 
+    // Start the dedicated HID IN writer thread.
+    // This thread drains the input queue with blocking (synchronous)
+    // writes to ep_hid_in_fd, avoiding the FunctionFS O_NONBLOCK
+    // race condition that can cause kernel panics in dummy_hcd.
+    usb_start_in_thread();
+
     struct epoll_event ev;
 
     // Add USB EP0 to epoll (for HID control requests)
@@ -265,13 +269,23 @@ int main() {
         }
     }
 
+    // ── Graceful shutdown sequence ──
+    // Order is critical to prevent kernel panics:
+    // 1. Signal writers to stop (usb_shutting_down)
+    // 2. Unbind UDC (cancels all pending URBs safely)
+    // 3. Stop writer threads (they'll exit when write() returns error)
+    // 4. Close FDs (now safe — no pending URBs)
+    usb_shutting_down = true;
+
+    // Unbind UDC FIRST — this cancels all pending URBs while FFS
+    // structures are still alive, preventing use-after-free.
+    usb_unbind_udc();
+
+    // Stop the HID IN writer thread
+    usb_stop_in_thread();
+
     // Wait for HID OUT thread to finish
     if (hid_out_thread.joinable()) {
-        // Close the fd to unblock the read() in the thread
-        if (ep_hid_out_fd >= 0) {
-            close(ep_hid_out_fd);
-            ep_hid_out_fd = -1;
-        }
         hid_out_thread.join();
         printf("[HID-OUT] Thread joined.\n");
     }
@@ -280,7 +294,8 @@ int main() {
     if (uac1_enabled) {
         audio_deinit();
     }
-    usb_deinit();
+    // Close all FDs and run teardown script
+    usb_close_fds();
     bt_deinit();
     close(epoll_fd);
     printf("Daemon shut down successfully.\n");
