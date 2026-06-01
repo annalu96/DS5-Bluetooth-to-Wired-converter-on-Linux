@@ -16,6 +16,7 @@ echo "[test] Looking for virtual DualSense event device..."
 # The virtual one should be on bus USB (BUS_USB=3), while the real one
 # is on bus Bluetooth (BUS_BLUETOOTH=5)
 VIRTUAL_EVENT=""
+FALLBACK_EVENT=""
 
 for ev in /sys/class/input/event*; do
     name_file="$ev/device/name"
@@ -31,10 +32,14 @@ for ev in /sys/class/input/event*; do
             # Get the basename (event number)
             ev_name=$(basename "$ev")
             
-            # Read the uevent to check bus type
+            # Read the uevent to check bus type (0003=USB, 0005=BT)
             bus_info=$(grep "ID=" "$uevent_file" 2>/dev/null | head -1)
+            is_usb=false
+            if echo "$bus_info" | grep -q "^ID=0003"; then
+                is_usb=true
+            fi
             
-            echo "[test] Found: /dev/input/$ev_name — $name"
+            echo "[test] Found: /dev/input/$ev_name — $name (${is_usb:+USB}${is_usb:-BT})"
             
             # Check if this device supports force feedback
             ff_file="$ev/device/capabilities/ff"
@@ -42,12 +47,23 @@ for ev in /sys/class/input/event*; do
                 ff_cap=$(cat "$ff_file" 2>/dev/null)
                 if [ "$ff_cap" != "0" ] && [ -n "$ff_cap" ]; then
                     echo "[test]    Has FF capability: $ff_cap"
-                    VIRTUAL_EVENT="/dev/input/$ev_name"
+                    if [ "$is_usb" = true ]; then
+                        # Prefer USB (virtual) device for testing the bridge
+                        VIRTUAL_EVENT="/dev/input/$ev_name"
+                    elif [ -z "$VIRTUAL_EVENT" ]; then
+                        FALLBACK_EVENT="/dev/input/$ev_name"
+                    fi
                 fi
             fi
         fi
     fi
 done
+
+# Fall back to BT device if no USB device found
+if [ -z "$VIRTUAL_EVENT" ] && [ -n "$FALLBACK_EVENT" ]; then
+    echo "[test] ⚠️ No USB DualSense found, falling back to BT device"
+    VIRTUAL_EVENT="$FALLBACK_EVENT"
+fi
 
 if [ -z "$VIRTUAL_EVENT" ]; then
     echo "[test] ❌ No DualSense event device with FF capability found."

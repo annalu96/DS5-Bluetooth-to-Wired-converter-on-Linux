@@ -25,7 +25,8 @@ static std::vector<int> grabbed_evdev_fds;
 // Path to the hidraw device we opened (e.g. "/dev/hidraw3")
 static std::string hidraw_path;
 
-// The HID device sysfs ID (e.g. "0005:054C:0CE6.0008") used for driver unbind/rebind
+// The HID device sysfs ID (e.g. "0005:054C:0CE6.0008") used for driver
+// unbind/rebind
 static std::string hid_device_id;
 
 // Whether we successfully unbound the hid-playstation driver
@@ -114,16 +115,16 @@ static void grab_evdev_devices() {
 
   ssize_t len = readlink(sysfs_path, device_link, sizeof(device_link) - 1);
   if (len < 0) {
-    printf("[BT] ⚠️ Não foi possível ler o link sysfs de %s: %s\n",
-           sysfs_path, strerror(errno));
+    printf("[BT] ⚠️ Não foi possível ler o link sysfs de %s: %s\n", sysfs_path,
+           strerror(errno));
     return;
   }
   device_link[len] = '\0';
 
   // Resolve to absolute path
   char abs_device_path[512];
-  snprintf(abs_device_path, sizeof(abs_device_path),
-           "/sys/class/hidraw/%s/%s", hidraw_name.c_str(), device_link);
+  snprintf(abs_device_path, sizeof(abs_device_path), "/sys/class/hidraw/%s/%s",
+           hidraw_name.c_str(), device_link);
 
   // Now scan /dev/input/eventX to find nodes belonging to this HID device.
   // We check /sys/class/input/eventX/device -> points to the same HID device
@@ -160,8 +161,8 @@ static void grab_evdev_devices() {
 
     // Check the name of this input device
     char name_path[256];
-    snprintf(name_path, sizeof(name_path),
-             "/sys/class/input/%s/device/name", ent->d_name);
+    snprintf(name_path, sizeof(name_path), "/sys/class/input/%s/device/name",
+             ent->d_name);
 
     FILE *f = fopen(name_path, "r");
     if (!f)
@@ -178,7 +179,8 @@ static void grab_evdev_devices() {
     // Match by device name — DualSense devices contain "DualSense" or
     // "Sony Interactive Entertainment" in their name
     bool matches = false;
-    if (strcasestr(name, "DualSense") || strcasestr(name, "Wireless Controller")) {
+    if (strcasestr(name, "DualSense") ||
+        strcasestr(name, "Wireless Controller")) {
       matches = true;
     }
     // Also match by HID_NAME if available
@@ -201,8 +203,7 @@ static void grab_evdev_devices() {
     }
 
     if (ioctl(evfd, EVIOCGRAB, 1) < 0) {
-      printf("[BT] ⚠️ EVIOCGRAB falhou em %s: %s\n", dev_path,
-             strerror(errno));
+      printf("[BT] ⚠️ EVIOCGRAB falhou em %s: %s\n", dev_path, strerror(errno));
       close(evfd);
       continue;
     }
@@ -317,7 +318,8 @@ static void unbind_hid_driver() {
   driver_unbound = true;
   printf("[BT] ✅ Driver '%s' desvinculado do dispositivo %s\n",
          bound_driver.c_str(), hid_device_id.c_str());
-  printf("[BT]    Os nodes evdev do DualSense BT foram removidos do sistema.\n");
+  printf(
+      "[BT]    Os nodes evdev do DualSense BT foram removidos do sistema.\n");
 }
 
 // Rebind the hid-playstation driver on shutdown so the controller
@@ -461,11 +463,14 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 
       // Log detailed hex dump for the first few writes
       if (bt_write_count < 5) {
-        printf("[BT] 📤 Writing output report #%d to hidraw (fd=%d): %d bytes\n",
-               bt_write_count, hidraw_fd, len - 1);
+        printf(
+            "[BT] 📤 Writing output report #%d to hidraw (fd=%d): %d bytes\n",
+            bt_write_count, hidraw_fd, len - 1);
         printf("[BT]    Hex (to hidraw): ");
-        for (uint16_t i = 1; i < len && i < 21; i++) printf("%02x ", data[i]);
-        if (len > 21) printf("...");
+        for (uint16_t i = 1; i < len && i < 21; i++)
+          printf("%02x ", data[i]);
+        if (len > 21)
+          printf("...");
         printf("\n");
         printf("[BT]    flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
                len > 4 ? data[4] : 0, len > 5 ? data[5] : 0,
@@ -478,7 +483,8 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
                hidraw_fd, strerror(errno), errno);
       } else {
         if (bt_write_count < 10 || bt_write_count % 100 == 0) {
-          printf("[BT] ✅ Output report #%d escrito no hidraw: %zd/%d bytes (report_id=0x%02x)\n",
+          printf("[BT] ✅ Output report #%d escrito no hidraw: %zd/%d bytes "
+                 "(report_id=0x%02x)\n",
                  bt_write_count, written, len - 1, data[1]);
         }
         bt_write_count++;
