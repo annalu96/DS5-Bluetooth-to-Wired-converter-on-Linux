@@ -17,6 +17,9 @@
 #include "usb.h"
 #include "audio.h"
 #include "utils.h"
+#include "log.h"
+
+FILE *g_logfile = nullptr;
 
 #define MAX_EVENTS 10
 
@@ -86,46 +89,58 @@ static void send_startup_rumble_test() {
 // Returns: number of bytes forwarded, or -1 on error.
 int translate_usb_output_to_bt(const uint8_t *usb_buf, int usb_len, const char *source) {
     static int fwd_count = 0;
+    static int rumble_count = 0;
+    static int trigger_count = 0;
+    static int led_count = 0;
 
-    // USB format (63 bytes): [0x02] [common 47 bytes] [reserved 15 bytes]
-    // BT  format (78 bytes): [0x31] [seq_tag] [tag=0x10] [common 47 bytes] [reserved 24 bytes] [CRC32 4 bytes]
-    // We prepend 0xA2 as bt_write() strips it before sending to hidraw.
-    uint8_t outputData[79]; // 0xA2 + 78 bytes BT report
+    uint8_t outputData[79];
     memset(outputData, 0, sizeof(outputData));
 
-    outputData[0] = 0xA2; // HID DATA header (bt_write strips this)
-    outputData[1] = 0x31; // DualSense BT Output Report ID
+    outputData[0] = 0xA2;
+    outputData[1] = 0x31;
     {
         std::lock_guard<std::mutex> lock(seq_mutex);
-        outputData[2] = (reportSeqCounter << 4) | 0x00; // seq_tag
+        outputData[2] = (reportSeqCounter << 4) | 0x00;
         if (++reportSeqCounter == 16) reportSeqCounter = 0;
     }
-    outputData[3] = 0x10; // tag = DS_OUTPUT_TAG (MANDATORY)
+    outputData[3] = 0x10;
 
-    // Copy the 47-byte common payload from USB report into BT report.
-    // USB buf: [0x02][common 47 bytes][reserved 15 bytes] — common starts at buf[1]
-    // BT out:  [0xA2][0x31][seq][tag][common 47 bytes][reserved 24][CRC32 4]
-    size_t common_len = usb_len - 1; // skip USB report ID (0x02)
+    size_t common_len = usb_len - 1;
     if (common_len > 47) common_len = 47;
     memcpy(outputData + 4, usb_buf + 1, common_len);
 
-    // Force COMPATIBLE_VIBRATION bit for Bluetooth compatibility.
-    // USB wired mode uses HAPTICS_SELECT (0x02) alone, but BT mode
-    // requires COMPATIBLE_VIBRATION (0x01) to be set for motors to work.
     outputData[4] |= 0x01;  // DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION
 
-    // CRC32 covers bytes 1..74, result in bytes 75..78
     fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
 
     if (usb_shutting_down) return -1;
     bt_write(INTERRUPT, outputData, sizeof(outputData));
 
-    if (fwd_count < 10 || fwd_count % 100 == 0) {
-        printf("[OUTPUT] ✅ Forwarded output report #%d via %s (%d USB bytes → 78 BT bytes) "
-               "flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
+    // Classify this report
+    bool has_rumble = (outputData[6] > 0 || outputData[7] > 0);
+    bool has_trigger = false;
+    // Adaptive trigger data lives at common offsets 10-36 (outputData[14]-outputData[40])
+    for (int i = 14; i <= 40; i++) {
+        if (outputData[i] != 0) { has_trigger = true; break; }
+    }
+    bool has_led = (outputData[5] & 0x14) != 0; // valid_flag1 LED/player bits
+
+    if (has_rumble) rumble_count++;
+    if (has_trigger) trigger_count++;
+    if (has_led) led_count++;
+
+    // Log: first 10 always, then every 100th, PLUS any with rumble or trigger data
+    bool should_log = (fwd_count < 10 || fwd_count % 100 == 0 || has_rumble || has_trigger);
+    if (should_log) {
+        tlog("[OUTPUT] ✅ #%d via %s (%d→78B) flags=0x%02x|0x%02x motor_r=%u motor_l=%u",
                fwd_count, source, usb_len,
                outputData[4], outputData[5],
                outputData[6], outputData[7]);
+        if (has_trigger) {
+            blog(" TRIGGER[R:%02x L:%02x]",
+                   outputData[14], outputData[26]);
+        }
+        blog(" (rum=%d trig=%d led=%d)\n", rumble_count, trigger_count, led_count);
     }
     fwd_count++;
     return 78;
@@ -141,8 +156,8 @@ void signal_handler(int signum) {
 // This thread blocks on read() waiting for host output reports (rumble, LEDs)
 // while the main thread runs the epoll loop for BT→USB data flow.
 static void hid_out_thread_func() {
-    printf("[HID-OUT] Thread started for host→controller output reports.\n");
-    printf("[HID-OUT] ep_hid_out_fd=%d — blocking on read() for host output reports...\n", ep_hid_out_fd);
+    blog("[HID-OUT] Thread started for host→controller output reports.\n");
+    blog("[HID-OUT] ep_hid_out_fd=%d — blocking on read() for host output reports...\n", ep_hid_out_fd);
 
     static int out_count = 0;
     int heartbeat = 0;
@@ -152,36 +167,41 @@ static void hid_out_thread_func() {
         int ret = read(ep_hid_out_fd, buf, sizeof(buf));
         if (ret <= 0) {
             if (ret == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
-                printf("[HID-OUT] Endpoint closed or error: %s\n", strerror(errno));
+                blog("[HID-OUT] Endpoint closed or error: %s\n", strerror(errno));
                 break;
             }
-            // For EAGAIN (non-blocking mode): add heartbeat logging
             heartbeat++;
             if (heartbeat % 10000 == 1) {
-                printf("[HID-OUT] 💓 Thread alive, still waiting for output reports (poll #%d)\n", heartbeat);
+                blog("[HID-OUT] 💓 Thread alive, still waiting for output reports (poll #%d)\n", heartbeat);
             }
-            // Small sleep to avoid busy-wait if O_NONBLOCK is active
-            usleep(1000); // 1ms
+            usleep(1000);
             continue;
         }
 
-        // Log ALL received data for the first few reports
-        if (out_count < 10) {
-            printf("[HID-OUT] 📥 Received %d bytes from OUT endpoint, report_id=0x%02x\n", ret, buf[0]);
-            printf("[HID-OUT]    Hex: ");
-            for (int i = 0; i < ret && i < 20; i++) printf("%02x ", buf[i]);
-            if (ret > 20) printf("...");
-            printf("\n");
+        // Check for non-zero motor or adaptive trigger data
+        bool has_motor = (ret > 4 && (buf[3] > 0 || buf[4] > 0));
+        bool has_trigger_data = false;
+        for (int i = 11; i < ret && i <= 37; i++) {
+            if (buf[i] != 0) { has_trigger_data = true; break; }
+        }
+
+        // Log hex for first 10, plus any with motor/trigger data
+        if (out_count < 10 || has_motor || has_trigger_data) {
+            tlog("[HID-OUT] 📥 #%d: %d bytes, report_id=0x%02x\n", out_count, ret, buf[0]);
+            blog("[HID-OUT]    Hex: ");
+            for (int i = 0; i < ret && i < 48; i++) blog("%02x ", buf[i]);
+            if (ret > 48) blog("...");
+            blog("\n");
         }
 
         if (buf[0] == 0x02) {
             translate_usb_output_to_bt(buf, ret, "OUT-EP");
             out_count++;
         } else {
-            printf("[HID-OUT] ⚠️ Unknown output report ID: 0x%02x (len=%d) — ignoring\n", buf[0], ret);
+            blog("[HID-OUT] ⚠️ Unknown output report ID: 0x%02x (len=%d) — ignoring\n", buf[0], ret);
         }
     }
-    printf("[HID-OUT] Thread exiting (forwarded %d reports total).\n", out_count);
+    blog("[HID-OUT] Thread exiting (forwarded %d reports total).\n", out_count);
 }
 
 // Callback when Bluetooth/hidraw receives data
@@ -245,8 +265,9 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 }
 
 int main() {
-    printf("Starting DS5-Bluetooth-to-Wired-converter-on-Linux...\n");
-    printf("Modo: hidraw → USB Gadget (FunctionFS)\n\n");
+    log_init("bridge.log");
+    blog("Starting DS5-Bluetooth-to-Wired-converter-on-Linux...\n");
+    blog("Modo: hidraw → USB Gadget (FunctionFS)\n\n");
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -404,6 +425,7 @@ int main() {
     usb_close_fds();
     bt_deinit();
     close(epoll_fd);
-    printf("Daemon shut down successfully.\n");
+    blog("Daemon shut down successfully.\n");
+    log_close();
     return 0;
 }

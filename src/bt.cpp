@@ -1,4 +1,5 @@
 #include "bt.h"
+#include "log.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -481,27 +482,27 @@ void bt_write(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
 
       // Log detailed hex dump for the first few writes
       if (bt_write_count < 5) {
-        printf(
+        tlog(
             "[BT] 📤 Writing output report #%d to hidraw (fd=%d): %d bytes\n",
             bt_write_count, hidraw_fd, len - 1);
-        printf("[BT]    Hex (to hidraw): ");
+        blog("[BT]    Hex (to hidraw): ");
         for (uint16_t i = 1; i < len && i < 21; i++)
-          printf("%02x ", data[i]);
+          blog("%02x ", data[i]);
         if (len > 21)
-          printf("...");
-        printf("\n");
-        printf("[BT]    flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
+          blog("...");
+        blog("\n");
+        blog("[BT]    flags=0x%02x|0x%02x motor_r=%u motor_l=%u\n",
                len > 4 ? data[4] : 0, len > 5 ? data[5] : 0,
                len > 6 ? data[6] : 0, len > 7 ? data[7] : 0);
       }
 
       ssize_t written = write(hidraw_fd, data + 1, len - 1);
       if (written < 0) {
-        printf("[BT] ❌ Falha ao escrever no hidraw (fd=%d): %s (errno=%d)\n",
-               hidraw_fd, strerror(errno), errno);
+        blog("[BT] ❌ Falha ao escrever no hidraw (fd=%d): %s (errno=%d)\n",
+                hidraw_fd, strerror(errno), errno);
       } else {
         if (bt_write_count < 10 || bt_write_count % 100 == 0) {
-          printf("[BT] ✅ Output report #%d escrito no hidraw: %zd/%d bytes "
+          blog("[BT] ✅ Output report #%d escrito no hidraw: %zd/%d bytes "
                  "(report_id=0x%02x)\n",
                  bt_write_count, written, len - 1, data[1]);
         }
