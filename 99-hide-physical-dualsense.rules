@@ -2,11 +2,14 @@
 # Como o logind aplica ACLs (Access Control Lists) de forma assíncrona,
 # ele ignora o MODE do udev. A solução é rodar comandos para arrancar a permissão à força.
 
-# Eventos de Input (KDE, libinput, SDL)
-SUBSYSTEM=="input", ATTRS{name}=="*DualSense*", ENV{ID_INPUT_JOYSTICK}="", ENV{ID_INPUT_JOYPAD}="", ENV{ID_INPUT}="", ENV{ID_SEAT}="", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"
+# Eventos de Input (KDE, libinput, SDL) — somente Bluetooth (bus 0005)
+# ENV{DEVPATH} contém o caminho sysfs completo, que inclui o ID do dispositivo HID pai.
+# Filtramos por "0005:054C:" para atingir apenas o DualSense real via BT,
+# preservando os evdev do gadget USB virtual (bus 0003).
+SUBSYSTEM=="input", ENV{DEVPATH}=="*/0005:054C:*", ATTRS{name}=="*DualSense*", ENV{ID_INPUT_JOYSTICK}="", ENV{ID_INPUT_JOYPAD}="", ENV{ID_INPUT}="", ENV{ID_SEAT}="", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"
 
-# Comunicação Bruta Hidraw Padrão (Steam)
-SUBSYSTEM=="hidraw", KERNELS=="*054C:0CE6*", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"
+# Comunicação Bruta Hidraw Padrão (Steam) — somente Bluetooth (bus 0005)
+SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0CE6*", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"
 
-# Comunicação Bruta Hidraw Edge (Steam)
-SUBSYSTEM=="hidraw", KERNELS=="*054C:0DF2*", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"
+# Comunicação Bruta Hidraw Edge (Steam) — somente Bluetooth (bus 0005)
+SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0DF2*", TAG-="uaccess", TAG-="seat", RUN+="/usr/bin/setfacl -b %E{DEVNAME}", RUN+="/usr/bin/chmod 0600 %E{DEVNAME}"

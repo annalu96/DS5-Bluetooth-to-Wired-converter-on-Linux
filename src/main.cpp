@@ -109,6 +109,11 @@ int translate_usb_output_to_bt(const uint8_t *usb_buf, int usb_len, const char *
     if (common_len > 47) common_len = 47;
     memcpy(outputData + 4, usb_buf + 1, common_len);
 
+    // Force COMPATIBLE_VIBRATION bit for Bluetooth compatibility.
+    // USB wired mode uses HAPTICS_SELECT (0x02) alone, but BT mode
+    // requires COMPATIBLE_VIBRATION (0x01) to be set for motors to work.
+    outputData[4] |= 0x01;  // DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION
+
     // CRC32 covers bytes 1..74, result in bytes 75..78
     fill_output_report_checksum(outputData + 1, sizeof(outputData) - 1);
 

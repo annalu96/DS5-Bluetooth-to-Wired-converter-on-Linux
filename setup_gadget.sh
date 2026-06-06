@@ -91,7 +91,7 @@ echo "0x0200" > "$GADGET_DIR/bcdUSB"    # USB 2.0
 # Set Strings
 mkdir -p "$GADGET_DIR/strings/0x409"
 echo "Sony Interactive Entertainment" > "$GADGET_DIR/strings/0x409/manufacturer"
-echo "Wireless Controller" > "$GADGET_DIR/strings/0x409/product"
+echo "DualSense Wireless Controller" > "$GADGET_DIR/strings/0x409/product"
 echo "000000000000" > "$GADGET_DIR/strings/0x409/serialnumber"
 
 # ============================================================

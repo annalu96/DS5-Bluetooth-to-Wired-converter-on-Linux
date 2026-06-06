@@ -192,6 +192,24 @@ static void grab_evdev_devices() {
     if (!matches)
       continue;
 
+    // Only grab evdev nodes from BT bus (0005:054C:).
+    // Without this filter, we'd also grab evdev nodes from the USB real
+    // controller or the USB gadget, breaking their functionality.
+    char ev_sysfs_link[512];
+    char ev_sysfs_resolved[512];
+    snprintf(ev_sysfs_link, sizeof(ev_sysfs_link),
+             "/sys/class/input/%s", ent->d_name);
+    ssize_t ev_link_len =
+        readlink(ev_sysfs_link, ev_sysfs_resolved, sizeof(ev_sysfs_resolved) - 1);
+    if (ev_link_len > 0) {
+      ev_sysfs_resolved[ev_link_len] = '\0';
+      if (!strstr(ev_sysfs_resolved, "0005:054C:")) {
+        printf("[BT]    Skipping /dev/input/%s (%s) — not BT bus\n",
+               ent->d_name, name);
+        continue;
+      }
+    }
+
     char dev_path[64];
     snprintf(dev_path, sizeof(dev_path), "/dev/input/%s", ent->d_name);
 
@@ -538,7 +556,17 @@ int bt_set_feature_report(uint8_t *data, size_t len) {
   // data[0] = report_id, data[1..] = report data
   int ret = ioctl(hidraw_fd, HIDIOCSFEATURE(len), data);
   if (ret < 0) {
-    printf("[BT] ⚠️ HIDIOCSFEATURE falhou: %s\n", strerror(errno));
+    if (data[0] == 0x08) {
+      // Report 0x08 (calibration) typically fails over BT because
+      // hid-playstation already owns the device. Safe to ignore.
+      static bool warned_08 = false;
+      if (!warned_08) {
+        printf("[BT] ⚠ SET_FEATURE 0x08 não suportado via BT hidraw (esperado, ignorando)\n");
+        warned_08 = true;
+      }
+    } else {
+      printf("[BT] ⚠ HIDIOCSFEATURE(0x%02x) falhou: %s\n", data[0], strerror(errno));
+    }
     return -1;
   }
   return ret;

@@ -1,10 +1,25 @@
 [teardown] Starting full gadget cleanup...
-[teardown] Unmounting FunctionFS at /dev/ffs...
 [teardown] Waiting for kernel FFS cleanup...
-[teardown] Unlinking ffs.ds from config...
 [teardown] Reloading kernel modules to clear stale state...
 [teardown] Gadget directory removed successfully.
 [teardown] Cleanup complete.
+[setup] Running teardown first...
+[teardown] Starting full gadget cleanup...
+[teardown] Waiting for kernel FFS cleanup...
+[teardown] Reloading kernel modules to clear stale state...
+[teardown] Gadget directory removed successfully.
+[teardown] Cleanup complete.
+[setup] Loading kernel modules...
+[setup] Detected dummy_hcd UDC (dummy_udc.0) — no isochronous support.
+[setup] UAC1 audio will be DISABLED (HID only).
+[setup] Creating gadget 'dualsense'...
+[setup] Skipping UAC1 audio (UDC does not support isochronous endpoints).
+[setup] Creating FunctionFS HID function...
+[setup] Mounting FunctionFS at /dev/ffs...
+[setup] Gadget setup complete. FFS mounted at /dev/ffs.
+[setup] UAC1 audio: DISABLED
+[setup] NOTE: UDC binding must be done by the daemon after writing descriptors.
+[setup] Available UDC: dummy_udc.0
 Starting DS5-Bluetooth-to-Wired-converter-on-Linux...
 Modo: hidraw → USB Gadget (FunctionFS)
 
@@ -12,14 +27,12 @@ Modo: hidraw → USB Gadget (FunctionFS)
 [Main] 👉 Conecte o controle normalmente (bluetoothctl ou GUI).
 
 [BT] Procurando DualSense via hidraw...
-[BT] 🎮 DualSense encontrado em: /dev/hidraw12
+[BT] 🎮 DualSense encontrado em: /dev/hidraw14
 [BT] ✅ DualSense aberto: bus=5 vendor=0x054C product=0x0CE6
 [BT]    Nome: DualSense Wireless Controller
-[BT] ⚠️ EVIOCGRAB falhou em /dev/input/event27: Device or resource busy
-[BT] ⚠️ EVIOCGRAB falhou em /dev/input/event28: Device or resource busy
-[BT] ⚠️ EVIOCGRAB falhou em /dev/input/event29: Device or resource busy
-[BT] ⚠️ Nenhum dispositivo evdev do DualSense encontrado para grab.
-[BT]    O sistema pode receber input duplo (real + virtual).
+[BT] 🔒 EVIOCGRAB em /dev/input/event28 (DualSense Wireless Controller) — input do controle real suprimido
+[BT] 🔒 EVIOCGRAB em /dev/input/event30 (DualSense Wireless Controller Touchpad) — input do controle real suprimido
+[BT] 🔒 EVIOCGRAB em /dev/input/event29 (DualSense Wireless Controller Motion Sensors) — input do controle real suprimido
 [BT] ✅ Bridge hidraw inicializado com sucesso.
 [Main] ✅ DualSense conectado via hidraw!
 
@@ -33,23 +46,710 @@ Modo: hidraw → USB Gadget (FunctionFS)
 [USB] Binding gadget to dummy UDC...
 [USB] UDC file confirms bind: 'dummy_udc.0'
 [USB] Gadget successfully bound to UDC (attempt 1).
-[USB] Servicing EP0 during host enumeration...
+[USB] Servicing EP0 during host enumeration (up to 15s)...
 [USB] EP0 event: BIND
 [USB] EP0 event: ENABLE (host configured the gadget)
 [USB] SET_IDLE value=0x0000
 [USB] Sending HID Report Descriptor (289 bytes)...
 [USB] GET_REPORT type=3 id=0x09 len=20
+[USB]    Feature report 0x09: got 20 bytes from BT, host wants 20 bytes
 [USB] GET_REPORT type=3 id=0x20 len=64
+[USB]    Feature report 0x20: got 64 bytes from BT, host wants 64 bytes
 [USB] GET_REPORT type=3 id=0x05 len=41
+[USB]    Feature report 0x05: got 41 bytes from BT, host wants 41 bytes
+[USB] EP0 servicing: idle timeout after 5058ms total.
 [USB] EP0 enumeration servicing complete.
 [Audio] Skipped — UAC1 not available on this UDC.
-[USB] ep_hid_out_fd does not support epoll (errno=1: Operation not permitted), using manual polling.
-Entering main event loop...
-[USB] Forwarding input report: LX=80 LY=82 RX=80 RY=7c L2=00 R2=00
-[USB] GET_REPORT type=3 id=0x09 len=20
+[TEST] 🔧 Sending direct rumble test to BT controller...
+[TEST]    Report hex (first 12): a2 31 00 10 03 00 80 80 00 00 00 00
+[BT] 📤 Writing output report #0 to hidraw (fd=4): 78 bytes
+[BT]    Hex (to hidraw): 31 00 10 03 00 80 80 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT]    flags=0x03|0x00 motor_r=128 motor_l=128
+[BT] ✅ Output report #0 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[TEST] ✅ Rumble ON sent. Waiting 800ms...
+[BT] 📤 Writing output report #1 to hidraw (fd=4): 78 bytes
+[BT]    Hex (to hidraw): 31 10 10 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT]    flags=0x03|0x00 motor_r=0 motor_l=0
+[BT] ✅ Output report #1 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[TEST] ✅ Rumble OFF sent. Test complete.
+[TEST]    Did the controller vibrate? If YES → BT output path works.
+[TEST]    If NO → check hidraw write permissions and BT connection.
 
-Caught signal 15. Initiating graceful shutdown...
+[HID-IN] Writer thread started.
+Entering main event loop...
+[HID-OUT] Thread started for host→controller output reports.
+[HID-OUT] ep_hid_out_fd=10 — blocking on read() for host output reports...
+[USB] Enqueuing input report #0: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[USB] Enqueuing input report #1: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[USB] Enqueuing input report #2: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 00 14 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[USB] Enqueuing input report #3: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[USB] Enqueuing input report #4: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[BT] 📤 Writing output report #2 to hidraw (fd=4): 78 bytes
+[BT]    Hex (to hidraw): 31 20 10 00 14 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT]    flags=0x00|0x14 motor_r=0 motor_l=0
+[BT] ✅ Output report #2 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #0 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x00|0x14 motor_r=0 motor_l=0
+[HID-IN] ✅ Input report #1 sent (ok=1 fail=0)
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 a0 80 00 00 00 64 00 30 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] 📤 Writing output report #3 to hidraw (fd=4): 78 bytes
+[BT]    Hex (to hidraw): 31 30 10 a0 80 00 00 00 64 00 30 00 00 00 00 00 00 00 00 00 ...
+[BT]    flags=0xa0|0x80 motor_r=0 motor_l=0
+[BT] ✅ Output report #3 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #1 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0xa0|0x80 motor_r=0 motor_l=0
+[HID-IN] ✅ Input report #2 sent (ok=2 fail=0)
+[HID-IN] ✅ Input report #3 sent (ok=3 fail=0)
+[HID-IN] ✅ Input report #4 sent (ok=4 fail=0)
+[USB] Enqueuing input report #500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #500 sent (ok=500 fail=0)
+[USB] Enqueuing input report #1000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #1000 sent (ok=1000 fail=0)
+[USB] Enqueuing input report #1500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #1500 sent (ok=1500 fail=0)
+[USB] Enqueuing input report #2000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #2000 sent (ok=2000 fail=0)
+[USB] Enqueuing input report #2500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #2500 sent (ok=2500 fail=0)
+[USB] Enqueuing input report #3000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #3000 sent (ok=3000 fail=0)
+[USB] Enqueuing input report #3500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #3500 sent (ok=3500 fail=0)
+[USB] Enqueuing input report #4000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #4000 sent (ok=4000 fail=0)
+[USB] Enqueuing input report #4500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #4500 sent (ok=4500 fail=0)
+[USB] Enqueuing input report #5000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #5000 sent (ok=5000 fail=0)
+[USB] Enqueuing input report #5500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #5500 sent (ok=5500 fail=0)
+[USB] Enqueuing input report #6000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #6000 sent (ok=6000 fail=0)
+[USB] Enqueuing input report #6500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #6500 sent (ok=6500 fail=0)
+[USB] Enqueuing input report #7000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #7000 sent (ok=7000 fail=0)
+[USB] Enqueuing input report #7500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #7500 sent (ok=7500 fail=0)
+[USB] Enqueuing input report #8000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #8000 sent (ok=8000 fail=0)
+[USB] Enqueuing input report #8500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #8500 sent (ok=8500 fail=0)
+[USB] Enqueuing input report #9000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #9000 sent (ok=9000 fail=0)
+[USB] Enqueuing input report #9500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #9500 sent (ok=9500 fail=0)
+[USB] Enqueuing input report #10000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #10000 sent (ok=10000 fail=0)
+[USB] Enqueuing input report #10500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #10500 sent (ok=10500 fail=0)
+[USB] Enqueuing input report #11000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #11000 sent (ok=11000 fail=0)
+[USB] Enqueuing input report #11500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #11500 sent (ok=11500 fail=0)
+[USB] Enqueuing input report #12000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #12000 sent (ok=12000 fail=0)
+[USB] Enqueuing input report #12500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #12500 sent (ok=12500 fail=0)
+[USB] Enqueuing input report #13000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #13000 sent (ok=13000 fail=0)
+[USB] Enqueuing input report #13500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #13500 sent (ok=13500 fail=0)
+[USB] Enqueuing input report #14000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #14000 sent (ok=14000 fail=0)
+[USB] Enqueuing input report #14500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #14500 sent (ok=14500 fail=0)
+[USB] Enqueuing input report #15000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #15000 sent (ok=15000 fail=0)
+[USB] Enqueuing input report #15500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #15500 sent (ok=15500 fail=0)
+[USB] Enqueuing input report #16000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #16000 sent (ok=16000 fail=0)
+[USB] Enqueuing input report #16500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #16500 sent (ok=16500 fail=0)
+[USB] Enqueuing input report #17000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #17000 sent (ok=17000 fail=0)
+[USB] Enqueuing input report #17500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #17500 sent (ok=17500 fail=0)
+[USB] Enqueuing input report #18000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #18000 sent (ok=18000 fail=0)
+[USB] Enqueuing input report #18500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #18500 sent (ok=18500 fail=0)
+[USB] Enqueuing input report #19000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #19000 sent (ok=19000 fail=0)
+[USB] Enqueuing input report #19500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #19500 sent (ok=19500 fail=0)
+[USB] Enqueuing input report #20000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #20000 sent (ok=20000 fail=0)
+[USB] Enqueuing input report #20500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #20500 sent (ok=20500 fail=0)
+[USB] Enqueuing input report #21000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #21000 sent (ok=21000 fail=0)
+[USB] Enqueuing input report #21500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #21500 sent (ok=21500 fail=0)
+[USB] Enqueuing input report #22000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #22000 sent (ok=22000 fail=0)
+[USB] Enqueuing input report #22500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #22500 sent (ok=22500 fail=0)
+[USB] Enqueuing input report #23000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #23000 sent (ok=23000 fail=0)
+[USB] Enqueuing input report #23500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #23500 sent (ok=23500 fail=0)
+[USB] Enqueuing input report #24000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #24000 sent (ok=24000 fail=0)
+[USB] Enqueuing input report #24500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #24500 sent (ok=24500 fail=0)
+[USB] Enqueuing input report #25000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #25000 sent (ok=25000 fail=0)
+[USB] Enqueuing input report #25500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #25500 sent (ok=25500 fail=0)
+[USB] Enqueuing input report #26000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #26000 sent (ok=26000 fail=0)
+[USB] Enqueuing input report #26500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #26500 sent (ok=26500 fail=0)
+[USB] Enqueuing input report #27000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #27000 sent (ok=27000 fail=0)
+[USB] Enqueuing input report #27500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #27500 sent (ok=27500 fail=0)
+[USB] Enqueuing input report #28000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #28000 sent (ok=28000 fail=0)
+[USB] Enqueuing input report #28500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #28500 sent (ok=28500 fail=0)
+[USB] Enqueuing input report #29000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #29000 sent (ok=29000 fail=0)
+[USB] Enqueuing input report #29500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #29500 sent (ok=29500 fail=0)
+[USB] Enqueuing input report #30000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #30000 sent (ok=30000 fail=0)
+[USB] Enqueuing input report #30500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #30500 sent (ok=30500 fail=0)
+[USB] Enqueuing input report #31000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #31000 sent (ok=31000 fail=0)
+[USB] Enqueuing input report #31500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #31500 sent (ok=31500 fail=0)
+[USB] Enqueuing input report #32000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #32000 sent (ok=32000 fail=0)
+[USB] Enqueuing input report #32500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #32500 sent (ok=32500 fail=0)
+[USB] Enqueuing input report #33000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #33000 sent (ok=33000 fail=0)
+[USB] Enqueuing input report #33500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #33500 sent (ok=33500 fail=0)
+[USB] Enqueuing input report #34000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #34000 sent (ok=34000 fail=0)
+[USB] Enqueuing input report #34500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #34500 sent (ok=34500 fail=0)
+[USB] Enqueuing input report #35000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #35000 sent (ok=35000 fail=0)
+[USB] Enqueuing input report #35500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #35500 sent (ok=35500 fail=0)
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 7f 7f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] 📤 Writing output report #4 to hidraw (fd=4): 78 bytes
+[BT]    Hex (to hidraw): 31 40 10 02 00 7f 7f 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT]    flags=0x02|0x00 motor_r=127 motor_l=127
+[BT] ✅ Output report #4 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #2 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=127 motor_l=127
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] ✅ Output report #5 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #3 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=0 motor_l=0
+[USB] Enqueuing input report #36000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 7f 7f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] ✅ Output report #6 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #4 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=127 motor_l=127
+[HID-IN] ✅ Input report #36000 sent (ok=36000 fail=0)
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] ✅ Output report #7 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #5 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=0 motor_l=0
+[USB] Enqueuing input report #36500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #36500 sent (ok=36500 fail=0)
+[USB] Enqueuing input report #37000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 7f 7f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] ✅ Output report #8 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #6 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=127 motor_l=127
+[HID-IN] ✅ Input report #37000 sent (ok=37000 fail=0)
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[BT] ✅ Output report #9 escrito no hidraw: 78/78 bytes (report_id=0x31)
+[OUTPUT] ✅ Forwarded output report #7 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=0 motor_l=0
+[USB] Enqueuing input report #37500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 7f 7f 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[OUTPUT] ✅ Forwarded output report #8 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=127 motor_l=127
+[HID-OUT] 📥 Received 63 bytes from OUT endpoint, report_id=0x02
+[HID-OUT]    Hex: 02 02 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 ...
+[OUTPUT] ✅ Forwarded output report #9 via OUT-EP (63 USB bytes → 78 BT bytes) flags=0x02|0x00 motor_r=0 motor_l=0
+[HID-IN] ✅ Input report #37500 sent (ok=37500 fail=0)
+[USB] Enqueuing input report #38000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #38000 sent (ok=38000 fail=0)
+[USB] Enqueuing input report #38500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #38500 sent (ok=38500 fail=0)
+[USB] Enqueuing input report #39000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #39000 sent (ok=39000 fail=0)
+[USB] Enqueuing input report #39500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #39500 sent (ok=39500 fail=0)
+[USB] Enqueuing input report #40000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #40000 sent (ok=40000 fail=0)
+[USB] Enqueuing input report #40500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #40500 sent (ok=40500 fail=0)
+[USB] Enqueuing input report #41000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #41000 sent (ok=41000 fail=0)
+[USB] Enqueuing input report #41500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #41500 sent (ok=41500 fail=0)
+[USB] Enqueuing input report #42000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #42000 sent (ok=42000 fail=0)
+[USB] Enqueuing input report #42500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #42500 sent (ok=42500 fail=0)
+[USB] Enqueuing input report #43000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #43000 sent (ok=43000 fail=0)
+[USB] Enqueuing input report #43500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #43500 sent (ok=43500 fail=0)
+[USB] Enqueuing input report #44000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #44000 sent (ok=44000 fail=0)
+[USB] Enqueuing input report #44500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #44500 sent (ok=44500 fail=0)
+[USB] Enqueuing input report #45000: LX=82 LY=7f RX=7e RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #45000 sent (ok=45000 fail=0)
+[USB] Enqueuing input report #45500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #45500 sent (ok=45500 fail=0)
+[USB] Enqueuing input report #46000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[USB] GET_REPORT type=3 id=0x09 len=20
+[USB]    Feature report 0x09: got 20 bytes from BT, host wants 20 bytes
+[USB] GET_REPORT type=3 id=0x20 len=64
+[USB]    Feature report 0x20: got 64 bytes from BT, host wants 64 bytes
+[USB] SET_REPORT type=3 id=0x08 len=48
+[BT] ⚠ HIDIOCSFEATURE falhou: Input/output error
+[USB] GET_REPORT type=3 id=0x05 len=41
+[USB]    Feature report 0x05: got 41 bytes from BT, host wants 41 bytes
+[HID-IN] ✅ Input report #46000 sent (ok=46000 fail=0)
+[USB] Enqueuing input report #46500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #46500 sent (ok=46500 fail=0)
+[USB] Enqueuing input report #47000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #47000 sent (ok=47000 fail=0)
+[USB] Enqueuing input report #47500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #47500 sent (ok=47500 fail=0)
+[USB] Enqueuing input report #48000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #48000 sent (ok=48000 fail=0)
+[USB] Enqueuing input report #48500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #48500 sent (ok=48500 fail=0)
+[USB] Enqueuing input report #49000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #49000 sent (ok=49000 fail=0)
+[USB] Enqueuing input report #49500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #49500 sent (ok=49500 fail=0)
+[USB] Enqueuing input report #50000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[USB] Enqueuing input report #50500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #50000 sent (ok=50000 fail=0)
+[USB] Enqueuing input report #51000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #50500 sent (ok=50500 fail=0)
+[USB] Enqueuing input report #51500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #51000 sent (ok=51000 fail=0)
+[USB] Enqueuing input report #52000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #51500 sent (ok=51500 fail=0)
+[USB] Enqueuing input report #52500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #52000 sent (ok=52000 fail=0)
+[USB] Enqueuing input report #53000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #52500 sent (ok=52500 fail=0)
+[USB] Enqueuing input report #53500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #53000 sent (ok=53000 fail=0)
+[USB] Enqueuing input report #54000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #53500 sent (ok=53500 fail=0)
+[USB] Enqueuing input report #54500: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #54000 sent (ok=54000 fail=0)
+[USB] Enqueuing input report #55000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #54500 sent (ok=54500 fail=0)
+[USB] Enqueuing input report #55500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #55000 sent (ok=55000 fail=0)
+[USB] Enqueuing input report #56000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #55500 sent (ok=55500 fail=0)
+[USB] Enqueuing input report #56500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #56000 sent (ok=56000 fail=0)
+[USB] Enqueuing input report #57000: LX=82 LY=7f RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #56500 sent (ok=56500 fail=0)
+[USB] Enqueuing input report #57500: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #57000 sent (ok=57000 fail=0)
+[USB] Enqueuing input report #58000: LX=82 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #57500 sent (ok=57500 fail=0)
+[USB] Enqueuing input report #58500: LX=83 LY=7e RX=7e RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #58000 sent (ok=58000 fail=0)
+[USB] Enqueuing input report #59000: LX=81 LY=7d RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #58500 sent (ok=58500 fail=0)
+[USB] Enqueuing input report #59500: LX=5c LY=b2 RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #59000 sent (ok=59000 fail=0)
+[USB] Enqueuing input report #60000: LX=80 LY=80 RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #59500 sent (ok=59500 fail=0)
+[USB] Enqueuing input report #60500: LX=81 LY=7e RX=7f RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #60000 sent (ok=60000 fail=0)
+[USB] Enqueuing input report #61000: LX=81 LY=7f RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #60500 sent (ok=60500 fail=0)
+[USB] Enqueuing input report #61500: LX=ff LY=58 RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #61000 sent (ok=61000 fail=0)
+[USB] Enqueuing input report #62000: LX=85 LY=7e RX=7f RY=80 L2=00 R2=00
+[HID-IN] ✅ Input report #61500 sent (ok=61500 fail=0)
+[USB] Enqueuing input report #62500: LX=84 LY=7e RX=87 RY=8d L2=00 R2=00
+[HID-IN] ✅ Input report #62000 sent (ok=62000 fail=0)
+[USB] Enqueuing input report #63000: LX=84 LY=7e RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #62500 sent (ok=62500 fail=0)
+[USB] Enqueuing input report #63500: LX=84 LY=7e RX=8a RY=b7 L2=00 R2=00
+[HID-IN] ✅ Input report #63000 sent (ok=63000 fail=0)
+[USB] Enqueuing input report #64000: LX=84 LY=7e RX=8c RY=ad L2=00 R2=00
+[HID-IN] ✅ Input report #63500 sent (ok=63500 fail=0)
+[USB] Enqueuing input report #64500: LX=84 LY=7e RX=8e RY=ae L2=00 R2=00
+[HID-IN] ✅ Input report #64000 sent (ok=64000 fail=0)
+[USB] Enqueuing input report #65000: LX=84 LY=7e RX=90 RY=b4 L2=00 R2=00
+[HID-IN] ✅ Input report #64500 sent (ok=64500 fail=0)
+[USB] Enqueuing input report #65500: LX=84 LY=7e RX=8f RY=97 L2=00 R2=00
+[HID-IN] ✅ Input report #65000 sent (ok=65000 fail=0)
+[USB] Enqueuing input report #66000: LX=7c LY=47 RX=81 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #65500 sent (ok=65500 fail=0)
+[USB] Enqueuing input report #66500: LX=7f LY=81 RX=81 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #66000 sent (ok=66000 fail=0)
+[USB] Enqueuing input report #67000: LX=8c LY=ad RX=81 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #66500 sent (ok=66500 fail=0)
+[USB] Enqueuing input report #67500: LX=80 LY=83 RX=81 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #67000 sent (ok=67000 fail=0)
+[USB] Enqueuing input report #68000: LX=82 LY=82 RX=89 RY=86 L2=00 R2=00
+[HID-IN] ✅ Input report #67500 sent (ok=67500 fail=0)
+[USB] Enqueuing input report #68500: LX=84 LY=82 RX=97 RY=d3 L2=00 R2=00
+[HID-IN] ✅ Input report #68000 sent (ok=68000 fail=0)
+[USB] Enqueuing input report #69000: LX=79 LY=06 RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #68500 sent (ok=68500 fail=0)
+[USB] Enqueuing input report #69500: LX=80 LY=80 RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #69000 sent (ok=69000 fail=0)
+[USB] Enqueuing input report #70000: LX=cb LY=7d RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #69500 sent (ok=69500 fail=0)
+[USB] Enqueuing input report #70500: LX=7f LY=80 RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #70000 sent (ok=70000 fail=0)
+[USB] Enqueuing input report #71000: LX=dc LY=7e RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #70500 sent (ok=70500 fail=0)
+[USB] Enqueuing input report #71500: LX=82 LY=7e RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #71000 sent (ok=71000 fail=0)
+[USB] Enqueuing input report #72000: LX=82 LY=81 RX=87 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #71500 sent (ok=71500 fail=0)
+[USB] Enqueuing input report #72500: LX=81 LY=81 RX=86 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #72000 sent (ok=72000 fail=0)
+[USB] Enqueuing input report #73000: LX=83 LY=80 RX=84 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #72500 sent (ok=72500 fail=0)
+[USB] Enqueuing input report #73500: LX=86 LY=83 RX=90 RY=ff L2=00 R2=00
+[HID-IN] ✅ Input report #73000 sent (ok=73000 fail=0)
+[USB] Enqueuing input report #74000: LX=81 LY=83 RX=83 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #73500 sent (ok=73500 fail=0)
+[USB] Enqueuing input report #74500: LX=8d LY=76 RX=83 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #74000 sent (ok=74000 fail=0)
+[USB] Enqueuing input report #75000: LX=7d LY=84 RX=83 RY=83 L2=00 R2=00
+[HID-IN] ✅ Input report #74500 sent (ok=74500 fail=0)
+[USB] Enqueuing input report #75500: LX=7d LY=f8 RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #75000 sent (ok=75000 fail=0)
+[USB] Enqueuing input report #76000: LX=7e LY=82 RX=83 RY=99 L2=00 R2=00
+[HID-IN] ✅ Input report #75500 sent (ok=75500 fail=0)
+[USB] Enqueuing input report #76500: LX=7e LY=82 RX=83 RY=af L2=00 R2=00
+[HID-IN] ✅ Input report #76000 sent (ok=76000 fail=0)
+[USB] Enqueuing input report #77000: LX=7e LY=82 RX=85 RY=a4 L2=00 R2=00
+[HID-IN] ✅ Input report #76500 sent (ok=76500 fail=0)
+[USB] Enqueuing input report #77500: LX=7e LY=82 RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #77000 sent (ok=77000 fail=0)
+[USB] Enqueuing input report #78000: LX=ba LY=23 RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #77500 sent (ok=77500 fail=0)
+[USB] Enqueuing input report #78500: LX=7f LY=80 RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #78000 sent (ok=78000 fail=0)
+[USB] Enqueuing input report #79000: LX=17 LY=9a RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #78500 sent (ok=78500 fail=0)
+[USB] Enqueuing input report #79500: LX=02 LY=48 RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #79000 sent (ok=79000 fail=0)
+[USB] Enqueuing input report #80000: LX=81 LY=7f RX=84 RY=86 L2=00 R2=00
+[HID-IN] ✅ Input report #79500 sent (ok=79500 fail=0)
+[USB] Enqueuing input report #80500: LX=7c LY=ff RX=84 RY=85 L2=00 R2=00
+[HID-IN] ✅ Input report #80000 sent (ok=80000 fail=0)
+[USB] Enqueuing input report #81000: LX=67 LY=22 RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #80500 sent (ok=80500 fail=0)
+[USB] Enqueuing input report #81500: LX=84 LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #81000 sent (ok=81000 fail=0)
+[USB] Enqueuing input report #82000: LX=7f LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #81500 sent (ok=81500 fail=0)
+[USB] Enqueuing input report #82500: LX=7f LY=80 RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #82000 sent (ok=82000 fail=0)
+[USB] Enqueuing input report #83000: LX=80 LY=7d RX=83 RY=82 L2=00 R2=08
+[HID-IN] ✅ Input report #82500 sent (ok=82500 fail=0)
+[USB] Enqueuing input report #83500: LX=7f LY=7e RX=83 RY=82 L2=23 R2=00
+[HID-IN] ✅ Input report #83000 sent (ok=83000 fail=0)
+[USB] Enqueuing input report #84000: LX=7f LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #83500 sent (ok=83500 fail=0)
+[USB] Enqueuing input report #84500: LX=7f LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #84000 sent (ok=84000 fail=0)
+[USB] Enqueuing input report #85000: LX=7f LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #84500 sent (ok=84500 fail=0)
+[USB] Enqueuing input report #85500: LX=7f LY=7f RX=83 RY=82 L2=00 R2=00
+[HID-IN] ✅ Input report #85000 sent (ok=85000 fail=0)
+[USB] Enqueuing input report #86000: LX=7f LY=7f RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #85500 sent (ok=85500 fail=0)
+[USB] Enqueuing input report #86500: LX=83 LY=7f RX=83 RY=84 L2=00 R2=00
+[USB] Enqueuing input report #87000: LX=7e LY=7f RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #86000 sent (ok=86000 fail=0)
+[USB] Enqueuing input report #87500: LX=84 LY=7c RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #86500 sent (ok=86500 fail=0)
+[USB] Enqueuing input report #88000: LX=84 LY=7c RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #87000 sent (ok=87000 fail=0)
+[USB] Enqueuing input report #88500: LX=82 LY=7c RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #87500 sent (ok=87500 fail=0)
+[USB] Enqueuing input report #89000: LX=81 LY=7c RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #88000 sent (ok=88000 fail=0)
+[USB] Enqueuing input report #89500: LX=81 LY=7c RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #88500 sent (ok=88500 fail=0)
+[USB] Enqueuing input report #90000: LX=83 LY=7c RX=83 RY=84 L2=ff R2=00
+[HID-IN] ✅ Input report #89000 sent (ok=89000 fail=0)
+[USB] Enqueuing input report #90500: LX=7f LY=7e RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #89500 sent (ok=89500 fail=0)
+[USB] Enqueuing input report #91000: LX=87 LY=00 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #90000 sent (ok=90000 fail=0)
+[USB] Enqueuing input report #91500: LX=83 LY=7d RX=83 RY=84 L2=00 R2=ff
+[HID-IN] ✅ Input report #90500 sent (ok=90500 fail=0)
+[USB] Enqueuing input report #92000: LX=83 LY=7c RX=83 RY=84 L2=00 R2=ff
+[HID-IN] ✅ Input report #91000 sent (ok=91000 fail=0)
+[USB] Enqueuing input report #92500: LX=97 LY=ff RX=83 RY=84 L2=00 R2=98
+[HID-IN] ✅ Input report #91500 sent (ok=91500 fail=0)
+[USB] Enqueuing input report #93000: LX=82 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #92000 sent (ok=92000 fail=0)
+[USB] Enqueuing input report #93500: LX=78 LY=ff RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #92500 sent (ok=92500 fail=0)
+[USB] Enqueuing input report #94000: LX=88 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #93000 sent (ok=93000 fail=0)
+[USB] Enqueuing input report #94500: LX=80 LY=7f RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #93500 sent (ok=93500 fail=0)
+[USB] Enqueuing input report #95000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #94000 sent (ok=94000 fail=0)
+[USB] Enqueuing input report #95500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #94500 sent (ok=94500 fail=0)
+[USB] Enqueuing input report #96000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #95000 sent (ok=95000 fail=0)
+[USB] Enqueuing input report #96500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #95500 sent (ok=95500 fail=0)
+[USB] Enqueuing input report #97000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #96000 sent (ok=96000 fail=0)
+[USB] Enqueuing input report #97500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #96500 sent (ok=96500 fail=0)
+[USB] Enqueuing input report #98000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #97000 sent (ok=97000 fail=0)
+[USB] Enqueuing input report #98500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #97500 sent (ok=97500 fail=0)
+[USB] Enqueuing input report #99000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #98000 sent (ok=98000 fail=0)
+[USB] Enqueuing input report #99500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #98500 sent (ok=98500 fail=0)
+[USB] Enqueuing input report #100000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #99000 sent (ok=99000 fail=0)
+[USB] Enqueuing input report #100500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #99500 sent (ok=99500 fail=0)
+[USB] Enqueuing input report #101000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #100000 sent (ok=100000 fail=0)
+[USB] Enqueuing input report #101500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #100500 sent (ok=100500 fail=0)
+[USB] Enqueuing input report #102000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #101000 sent (ok=101000 fail=0)
+[USB] Enqueuing input report #102500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #101500 sent (ok=101500 fail=0)
+[USB] Enqueuing input report #103000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #102000 sent (ok=102000 fail=0)
+[USB] Enqueuing input report #103500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #102500 sent (ok=102500 fail=0)
+[USB] Enqueuing input report #104000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #103000 sent (ok=103000 fail=0)
+[USB] Enqueuing input report #104500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #103500 sent (ok=103500 fail=0)
+[USB] Enqueuing input report #105000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #104000 sent (ok=104000 fail=0)
+[USB] Enqueuing input report #105500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #104500 sent (ok=104500 fail=0)
+[USB] Enqueuing input report #106000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #105000 sent (ok=105000 fail=0)
+[USB] Enqueuing input report #106500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #105500 sent (ok=105500 fail=0)
+[USB] Enqueuing input report #107000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #106000 sent (ok=106000 fail=0)
+[USB] Enqueuing input report #107500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #106500 sent (ok=106500 fail=0)
+[USB] Enqueuing input report #108000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #107000 sent (ok=107000 fail=0)
+[USB] Enqueuing input report #108500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #107500 sent (ok=107500 fail=0)
+[USB] Enqueuing input report #109000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #108000 sent (ok=108000 fail=0)
+[USB] Enqueuing input report #109500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #108500 sent (ok=108500 fail=0)
+[USB] Enqueuing input report #110000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #109000 sent (ok=109000 fail=0)
+[USB] Enqueuing input report #110500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #109500 sent (ok=109500 fail=0)
+[USB] Enqueuing input report #111000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #110000 sent (ok=110000 fail=0)
+[USB] Enqueuing input report #111500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #110500 sent (ok=110500 fail=0)
+[USB] Enqueuing input report #112000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #111000 sent (ok=111000 fail=0)
+[USB] Enqueuing input report #112500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #111500 sent (ok=111500 fail=0)
+[USB] Enqueuing input report #113000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #112000 sent (ok=112000 fail=0)
+[USB] Enqueuing input report #113500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #112500 sent (ok=112500 fail=0)
+[USB] Enqueuing input report #114000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #113000 sent (ok=113000 fail=0)
+[USB] Enqueuing input report #114500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #113500 sent (ok=113500 fail=0)
+[USB] Enqueuing input report #115000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #114000 sent (ok=114000 fail=0)
+[USB] Enqueuing input report #115500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #114500 sent (ok=114500 fail=0)
+[USB] Enqueuing input report #116000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #115000 sent (ok=115000 fail=0)
+[USB] Enqueuing input report #116500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #115500 sent (ok=115500 fail=0)
+[USB] Enqueuing input report #117000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[USB] GET_REPORT type=3 id=0x09 len=20
+[USB]    Feature report 0x09: got 20 bytes from BT, host wants 20 bytes
+[USB] GET_REPORT type=3 id=0x20 len=64
+[USB]    Feature report 0x20: got 64 bytes from BT, host wants 64 bytes
+[USB] SET_REPORT type=3 id=0x08 len=48
+[BT] ⚠ HIDIOCSFEATURE falhou: Input/output error
+[USB] GET_REPORT type=3 id=0x05 len=41
+[USB]    Feature report 0x05: got 41 bytes from BT, host wants 41 bytes
+[USB] Enqueuing input report #117500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #116000 sent (ok=116000 fail=0)
+[USB] Enqueuing input report #118000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #116500 sent (ok=116500 fail=0)
+[USB] Enqueuing input report #118500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #117000 sent (ok=117000 fail=0)
+[USB] Enqueuing input report #119000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #117500 sent (ok=117500 fail=0)
+[USB] Enqueuing input report #119500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #118000 sent (ok=118000 fail=0)
+[USB] Enqueuing input report #120000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #118500 sent (ok=118500 fail=0)
+[USB] Enqueuing input report #120500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #119000 sent (ok=119000 fail=0)
+[USB] Enqueuing input report #121000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #119500 sent (ok=119500 fail=0)
+[USB] Enqueuing input report #121500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #120000 sent (ok=120000 fail=0)
+[USB] Enqueuing input report #122000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #120500 sent (ok=120500 fail=0)
+[USB] Enqueuing input report #122500: LX=83 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #121000 sent (ok=121000 fail=0)
+[USB] Enqueuing input report #123000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #121500 sent (ok=121500 fail=0)
+[USB] Enqueuing input report #123500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #122000 sent (ok=122000 fail=0)
+[USB] Enqueuing input report #124000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #122500 sent (ok=122500 fail=0)
+[USB] Enqueuing input report #124500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #123000 sent (ok=123000 fail=0)
+[USB] Enqueuing input report #125000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #123500 sent (ok=123500 fail=0)
+[USB] Enqueuing input report #125500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #124000 sent (ok=124000 fail=0)
+[USB] Enqueuing input report #126000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #124500 sent (ok=124500 fail=0)
+[USB] Enqueuing input report #126500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #125000 sent (ok=125000 fail=0)
+[USB] Enqueuing input report #127000: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #125500 sent (ok=125500 fail=0)
+[USB] Enqueuing input report #127500: LX=81 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #126000 sent (ok=126000 fail=0)
+[USB] Enqueuing input report #128000: LX=81 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #126500 sent (ok=126500 fail=0)
+[USB] Enqueuing input report #128500: LX=80 LY=80 RX=83 RY=84 L2=00 R2=00
+[HID-IN] ✅ Input report #127000 sent (ok=127000 fail=0)
+[USB] Enqueuing input report #129000: LX=80 LY=80 RX=00 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #127500 sent (ok=127500 fail=0)
+[USB] Enqueuing input report #129500: LX=a7 LY=00 RX=f9 RY=b4 L2=00 R2=00
+[HID-IN] ✅ Input report #128000 sent (ok=128000 fail=0)
+[USB] Enqueuing input report #130000: LX=83 LY=7f RX=84 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #128500 sent (ok=128500 fail=0)
+[USB] Enqueuing input report #130500: LX=82 LY=7e RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #129000 sent (ok=129000 fail=0)
+[USB] Enqueuing input report #131000: LX=81 LY=7f RX=83 RY=81 L2=5f R2=00
+[HID-IN] ✅ Input report #129500 sent (ok=129500 fail=0)
+[USB] Enqueuing input report #131500: LX=7f LY=7f RX=83 RY=81 L2=00 R2=00
+[USB] Enqueuing input report #132000: LX=7f LY=80 RX=84 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #130000 sent (ok=130000 fail=0)
+[USB] Enqueuing input report #132500: LX=7f LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #130500 sent (ok=130500 fail=0)
+[USB] Enqueuing input report #133000: LX=7e LY=7f RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #131000 sent (ok=131000 fail=0)
+[USB] Enqueuing input report #133500: LX=9b LY=00 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #131500 sent (ok=131500 fail=0)
+[USB] Enqueuing input report #134000: LX=80 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #132000 sent (ok=132000 fail=0)
+[USB] Enqueuing input report #134500: LX=85 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #132500 sent (ok=132500 fail=0)
+[USB] Enqueuing input report #135000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #133000 sent (ok=133000 fail=0)
+[USB] Enqueuing input report #135500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #133500 sent (ok=133500 fail=0)
+[USB] Enqueuing input report #136000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #134000 sent (ok=134000 fail=0)
+[USB] Enqueuing input report #136500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #134500 sent (ok=134500 fail=0)
+[USB] Enqueuing input report #137000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #135000 sent (ok=135000 fail=0)
+[USB] Enqueuing input report #137500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #135500 sent (ok=135500 fail=0)
+[USB] Enqueuing input report #138000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #136000 sent (ok=136000 fail=0)
+[USB] Enqueuing input report #138500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #136500 sent (ok=136500 fail=0)
+[USB] Enqueuing input report #139000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #137000 sent (ok=137000 fail=0)
+[USB] Enqueuing input report #139500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #137500 sent (ok=137500 fail=0)
+[USB] Enqueuing input report #140000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #138000 sent (ok=138000 fail=0)
+[USB] Enqueuing input report #140500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #138500 sent (ok=138500 fail=0)
+[USB] Enqueuing input report #141000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #139000 sent (ok=139000 fail=0)
+[USB] Enqueuing input report #141500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #139500 sent (ok=139500 fail=0)
+[USB] Enqueuing input report #142000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #140000 sent (ok=140000 fail=0)
+[USB] Enqueuing input report #142500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #140500 sent (ok=140500 fail=0)
+[USB] Enqueuing input report #143000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #141000 sent (ok=141000 fail=0)
+[USB] Enqueuing input report #143500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #141500 sent (ok=141500 fail=0)
+[USB] Enqueuing input report #144000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #142000 sent (ok=142000 fail=0)
+[USB] Enqueuing input report #144500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #142500 sent (ok=142500 fail=0)
+[USB] Enqueuing input report #145000: LX=85 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #143000 sent (ok=143000 fail=0)
+[USB] Enqueuing input report #145500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #143500 sent (ok=143500 fail=0)
+[USB] Enqueuing input report #146000: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #144000 sent (ok=144000 fail=0)
+[USB] Enqueuing input report #146500: LX=84 LY=80 RX=83 RY=81 L2=00 R2=00
+[HID-IN] ✅ Input report #144500 sent (ok=144500 fail=0)
+^C
+Caught signal 2. Initiating graceful shutdown...
+[HID-IN] Writer thread exiting (ok=144734 fail=0).
+[USB] Unbinding UDC before closing endpoints...
+[HID-OUT] Endpoint closed or error: Cannot send after transport endpoint shutdown
+[HID-OUT] Thread exiting (forwarded 78 reports total).
+[USB] UDC unbound.
+[HID-IN] Writer thread joined.
+[HID-OUT] Thread joined.
 Cleaning up...
+[teardown] Starting full gadget cleanup...
+[teardown] Unmounting FunctionFS at /dev/ffs...
+[teardown] Waiting for kernel FFS cleanup...
+[teardown] Unlinking ffs.ds from config...
+[teardown] Reloading kernel modules to clear stale state...
+[teardown] Gadget directory removed successfully.
+[teardown] Cleanup complete.
 [BT] Encerrando bridge hidraw...
 [BT] Bridge hidraw encerrado.
 Daemon shut down successfully.
